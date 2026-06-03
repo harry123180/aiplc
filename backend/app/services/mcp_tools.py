@@ -49,7 +49,8 @@ TOOLS: list[dict[str, Any]] = [
                         "Component type ID, e.g. 'plc-cpu-f405', 'button-no', "
                         "'button-nc', 'indicator-light', 'relay', 'motor', "
                         "'sensor-proximity', 'sensor-temperature', 'power-supply', "
-                        "'terminal-block', 'fuse', 'contactor'"
+                        "'terminal-block', 'fuse', 'contactor', 'resistor', "
+                        "'ground', 'power-24v', 'junction'"
                     ),
                 },
                 "x": {"type": "number", "description": "X position on canvas (px)"},
@@ -343,6 +344,36 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "sensor",
         "description": "Inductive proximity sensor with PNP (sourcing) output. Detects metallic objects.",
         "pins": ["+V", "OUT", "GND"],
+    },
+    "resistor": {
+        "type": "resistor",
+        "name": "Resistor",
+        "category": "passive",
+        "description": "限流電阻",
+        "pins": ["1", "2"],
+        "properties": {"value": {"default": "1kΩ"}},
+    },
+    "ground": {
+        "type": "ground",
+        "name": "Ground (GND)",
+        "category": "power",
+        "description": "接地端子",
+        "pins": ["GND"],
+    },
+    "power-24v": {
+        "type": "power-24v",
+        "name": "Power Supply 24VDC",
+        "category": "power",
+        "description": "24VDC 電源供應器",
+        "pins": ["V+", "V-"],
+        "properties": {"voltage": {"default": "24"}},
+    },
+    "junction": {
+        "type": "junction",
+        "name": "Wire Junction",
+        "category": "passive",
+        "description": "接線端子 / 分歧點",
+        "pins": ["1", "2", "3"],
     },
 }
 

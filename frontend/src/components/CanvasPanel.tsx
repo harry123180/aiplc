@@ -104,6 +104,42 @@ function getComponentDef(type: string): ComponentDef {
           { name: 'NC2', side: 'right', offset: 20 },
         ],
       }
+    case 'resistor':
+      return {
+        width: 16,
+        height: 40,
+        pins: [
+          { name: '1', side: 'top', offset: 8 },
+          { name: '2', side: 'bottom', offset: 8 },
+        ],
+      }
+    case 'ground':
+      return {
+        width: 20,
+        height: 25,
+        pins: [
+          { name: 'GND', side: 'top', offset: 10 },
+        ],
+      }
+    case 'power-24v':
+      return {
+        width: 50,
+        height: 30,
+        pins: [
+          { name: 'V+', side: 'top', offset: 15 },
+          { name: 'V-', side: 'bottom', offset: 15 },
+        ],
+      }
+    case 'junction':
+      return {
+        width: 8,
+        height: 8,
+        pins: [
+          { name: '1', side: 'left', offset: 4 },
+          { name: '2', side: 'right', offset: 4 },
+          { name: '3', side: 'bottom', offset: 4 },
+        ],
+      }
     default:
       return { width: 50, height: 50, pins: [] }
   }
@@ -446,6 +482,98 @@ function EmergencyStop({ comp }: { comp: CanvasComponent }) {
   )
 }
 
+function Resistor({ comp }: { comp: CanvasComponent }) {
+  const label = (comp.properties?.value as string) || '1kΩ'
+  void label
+  return (
+    <>
+      <rect width={16} height={40} rx={2} fill="white" stroke="#5C6BC0" strokeWidth={1.5} />
+      {/* Resistor band pattern */}
+      <line x1={0} y1={10} x2={16} y2={10} stroke="#AB47BC" strokeWidth={2} />
+      <line x1={0} y1={16} x2={16} y2={16} stroke="#F44336" strokeWidth={2} />
+      <line x1={0} y1={22} x2={16} y2={22} stroke="#FF9800" strokeWidth={2} />
+      <line x1={0} y1={28} x2={16} y2={28} stroke="#FFD600" strokeWidth={1.5} />
+      {/* Pins */}
+      <circle cx={8} cy={0} r={3} fill="#5C6BC0" />
+      <circle cx={8} cy={40} r={3} fill="#5C6BC0" />
+    </>
+  )
+}
+
+function GroundSymbol({ comp }: { comp: CanvasComponent }) {
+  void comp
+  return (
+    <>
+      {/* Vertical lead line */}
+      <line x1={10} y1={0} x2={10} y2={8} stroke="#424242" strokeWidth={1.5} />
+      {/* Three horizontal lines (standard ground symbol) */}
+      <line x1={2} y1={8} x2={18} y2={8} stroke="#424242" strokeWidth={2} />
+      <line x1={5} y1={13} x2={15} y2={13} stroke="#424242" strokeWidth={2} />
+      <line x1={7} y1={18} x2={13} y2={18} stroke="#424242" strokeWidth={2} />
+      {/* Pin at top */}
+      <circle cx={10} cy={0} r={3} fill="#424242" />
+    </>
+  )
+}
+
+function Power24V({ comp }: { comp: CanvasComponent }) {
+  void comp
+  return (
+    <>
+      <rect width={50} height={30} rx={4} fill="white" stroke="#D32F2F" strokeWidth={1.5} />
+      <text
+        x={25}
+        y={14}
+        textAnchor="middle"
+        fill="#D32F2F"
+        fontSize={10}
+        fontWeight={700}
+        fontFamily="Inter, sans-serif"
+      >
+        24V
+      </text>
+      <text
+        x={10}
+        y={26}
+        textAnchor="middle"
+        fill="#D32F2F"
+        fontSize={8}
+        fontWeight={600}
+        fontFamily="Inter, sans-serif"
+      >
+        +
+      </text>
+      <text
+        x={40}
+        y={26}
+        textAnchor="middle"
+        fill="#1565C0"
+        fontSize={10}
+        fontWeight={600}
+        fontFamily="Inter, sans-serif"
+      >
+        −
+      </text>
+      {/* Pins */}
+      <circle cx={15} cy={0} r={3} fill="#D32F2F" />
+      <circle cx={15} cy={30} r={3} fill="#1565C0" />
+    </>
+  )
+}
+
+function Junction({ comp }: { comp: CanvasComponent }) {
+  void comp
+  return (
+    <>
+      <circle cx={4} cy={4} r={4} fill="#424242" />
+      {/* Pins */}
+      <circle cx={0} cy={4} r={2} fill="#424242" />
+      <circle cx={8} cy={4} r={2} fill="#424242" />
+      <circle cx={4} cy={8} r={2} fill="#424242" />
+    </>
+  )
+}
+
 function renderComponent(comp: CanvasComponent) {
   switch (comp.type) {
     case 'plc-cpu-f405':
@@ -462,6 +590,14 @@ function renderComponent(comp: CanvasComponent) {
       return <Motor3Phase comp={comp} />
     case 'emergency-stop':
       return <EmergencyStop comp={comp} />
+    case 'resistor':
+      return <Resistor comp={comp} />
+    case 'ground':
+      return <GroundSymbol comp={comp} />
+    case 'power-24v':
+      return <Power24V comp={comp} />
+    case 'junction':
+      return <Junction comp={comp} />
     default:
       return (
         <rect
@@ -565,6 +701,10 @@ const PALETTE_ITEMS = [
   { type: 'relay', label: 'Relay', color: '#FF9800' },
   { type: 'motor-3phase', label: 'Motor 3~', color: '#1565C0' },
   { type: 'emergency-stop', label: 'E-Stop', color: '#D32F2F' },
+  { type: 'resistor', label: 'Resistor', color: '#5C6BC0' },
+  { type: 'ground', label: 'GND', color: '#424242' },
+  { type: 'power-24v', label: '24V', color: '#D32F2F' },
+  { type: 'junction', label: 'Junction', color: '#424242' },
 ] as const
 
 let nextCompId = 0
