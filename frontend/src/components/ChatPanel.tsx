@@ -98,7 +98,7 @@ function parseSSE(raw: string): Array<{ event: string; data: string }> {
     let data = ''
     for (const line of block.split('\n')) {
       if (line.startsWith('event:')) event = line.slice(6).trim()
-      else if (line.startsWith('data:')) data = line.slice(5).trim()
+      else if (line.startsWith('data:')) data += (data ? '\n' : '') + line.slice(5).trim()
     }
     if (data) events.push({ event, data })
   }
@@ -171,6 +171,63 @@ export default function ChatPanel() {
       const decoder = new TextDecoder()
       let buffer = ''
 
+      /** Process parsed SSE events, with try/catch around each JSON.parse. */
+      const processEvents = (events: Array<{ event: string; data: string }>) => {
+        for (const evt of events) {
+          try {
+            switch (evt.event) {
+              case 'content': {
+                const parsed = JSON.parse(evt.data) as { content: string }
+                updateLastAssistantMessage(parsed.content)
+                break
+              }
+              case 'tool_calls': {
+                const calls = JSON.parse(evt.data) as Array<{
+                  id: string
+                  function: { name: string; arguments: string }
+                }>
+                for (const call of calls) {
+                  addMessage({
+                    role: 'tool',
+                    content: call.function.arguments,
+                    toolName: `Calling: ${call.function.name}`,
+                    toolCallId: call.id,
+                    isCollapsed: false,
+                  })
+                }
+                break
+              }
+              case 'tool_result': {
+                const result = JSON.parse(evt.data) as {
+                  tool_call_id: string
+                  name: string
+                  result: unknown
+                }
+                addMessage({
+                  role: 'tool',
+                  content: JSON.stringify(result.result, null, 2),
+                  toolName: `Result: ${result.name}`,
+                  toolCallId: result.tool_call_id,
+                  isCollapsed: true,
+                })
+                break
+              }
+              case 'error': {
+                const err = JSON.parse(evt.data) as { error: string }
+                updateLastAssistantMessage(`\n\nError: ${err.error}`)
+                break
+              }
+              case 'done': {
+                // Streaming complete
+                break
+              }
+            }
+          } catch (parseErr) {
+            console.warn('Failed to parse SSE event:', evt, parseErr)
+          }
+        }
+      }
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -184,56 +241,12 @@ export default function ChatPanel() {
         const complete = buffer.slice(0, lastDoubleNewline + 2)
         buffer = buffer.slice(lastDoubleNewline + 2)
 
-        const events = parseSSE(complete)
-        for (const evt of events) {
-          switch (evt.event) {
-            case 'content': {
-              const parsed = JSON.parse(evt.data) as { content: string }
-              updateLastAssistantMessage(parsed.content)
-              break
-            }
-            case 'tool_calls': {
-              const calls = JSON.parse(evt.data) as Array<{
-                id: string
-                function: { name: string; arguments: string }
-              }>
-              for (const call of calls) {
-                addMessage({
-                  role: 'tool',
-                  content: call.function.arguments,
-                  toolName: `Calling: ${call.function.name}`,
-                  toolCallId: call.id,
-                  isCollapsed: false,
-                })
-              }
-              break
-            }
-            case 'tool_result': {
-              const result = JSON.parse(evt.data) as {
-                tool_call_id: string
-                name: string
-                result: unknown
-              }
-              addMessage({
-                role: 'tool',
-                content: JSON.stringify(result.result, null, 2),
-                toolName: `Result: ${result.name}`,
-                toolCallId: result.tool_call_id,
-                isCollapsed: true,
-              })
-              break
-            }
-            case 'error': {
-              const err = JSON.parse(evt.data) as { error: string }
-              updateLastAssistantMessage(`\n\nError: ${err.error}`)
-              break
-            }
-            case 'done': {
-              // Streaming complete
-              break
-            }
-          }
-        }
+        processEvents(parseSSE(complete))
+      }
+
+      // Process any remaining data left in the buffer after the stream ends
+      if (buffer.trim()) {
+        processEvents(parseSSE(buffer))
       }
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {

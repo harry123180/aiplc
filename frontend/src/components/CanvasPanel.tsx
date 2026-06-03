@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState } from 'react'
+import { useRef, useCallback, useState, useEffect } from 'react'
 import useAppStore from '../store/useAppStore'
 import type { CanvasComponent, CanvasWire } from '../store/useAppStore'
 import { Plus, Trash2 } from 'lucide-react'
@@ -513,10 +513,13 @@ export default function CanvasPanel() {
   const components = useAppStore((s) => s.components)
   const wires = useAppStore((s) => s.wires)
   const addCanvasComponent = useAppStore((s) => s.addCanvasComponent)
+  const addCanvasWire = useAppStore((s) => s.addCanvasWire)
   const removeCanvasComponent = useAppStore((s) => s.removeCanvasComponent)
   const updateComponentPosition = useAppStore((s) => s.updateComponentPosition)
 
   const svgRef = useRef<SVGSVGElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
   const [dragging, setDragging] = useState<{
     id: string
     offsetX: number
@@ -524,6 +527,33 @@ export default function CanvasPanel() {
   } | null>(null)
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  // --- Bug C3: Track actual SVG container size for viewBox ---
+  const [svgSize, setSvgSize] = useState({ w: 1600, h: 900 })
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect
+      if (width > 0 && height > 0) setSvgSize({ w: width, h: height })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // --- Bug C4: Wire creation state ---
+  const [wiringFrom, setWiringFrom] = useState<{
+    componentId: string
+    pin: string
+    x: number
+    y: number
+  } | null>(null)
+  const [wiringMouse, setWiringMouse] = useState<{ x: number; y: number } | null>(null)
+  const [hoveredPin, setHoveredPin] = useState<{
+    componentId: string
+    pin: string
+  } | null>(null)
 
   // Convert mouse event to SVG coordinates
   const toSvgCoords = useCallback(
@@ -568,13 +598,19 @@ export default function CanvasPanel() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (!dragging) return
-      const svgCoord = toSvgCoords(e)
-      const nx = Math.round((svgCoord.x - dragging.offsetX) / 5) * 5
-      const ny = Math.round((svgCoord.y - dragging.offsetY) / 5) * 5
-      updateComponentPosition(dragging.id, nx, ny)
+      if (dragging) {
+        const svgCoord = toSvgCoords(e)
+        const nx = Math.round((svgCoord.x - dragging.offsetX) / 5) * 5
+        const ny = Math.round((svgCoord.y - dragging.offsetY) / 5) * 5
+        updateComponentPosition(dragging.id, nx, ny)
+      }
+      // Track mouse for wiring preview line
+      if (wiringFrom) {
+        const svgCoord = toSvgCoords(e)
+        setWiringMouse(svgCoord)
+      }
     },
-    [dragging, toSvgCoords, updateComponentPosition]
+    [dragging, wiringFrom, toSvgCoords, updateComponentPosition]
   )
 
   const handleMouseUp = useCallback(() => {
@@ -593,6 +629,72 @@ export default function CanvasPanel() {
       setSelectedId(null)
     }
   }, [selectedId, removeCanvasComponent])
+
+  // --- Bug C4: Pin click handler for wire creation ---
+  const handlePinMouseDown = useCallback(
+    (e: React.MouseEvent, componentId: string, pinName: string) => {
+      e.stopPropagation()
+      e.preventDefault()
+
+      const comp = components.find((c) => c.id === componentId)
+      if (!comp) return
+
+      const pinPos = getPinWorldPos(comp, pinName)
+      if (!pinPos) return
+
+      if (!wiringFrom) {
+        // Start wiring from this pin
+        setWiringFrom({ componentId, pin: pinName, x: pinPos.x, y: pinPos.y })
+        setWiringMouse(pinPos)
+      } else {
+        // Complete wiring to this pin (must be different component)
+        if (wiringFrom.componentId !== componentId) {
+          const wireId = `wire-${Date.now()}`
+          addCanvasWire({
+            id: wireId,
+            fromComponent: wiringFrom.componentId,
+            fromPin: wiringFrom.pin,
+            toComponent: componentId,
+            toPin: pinName,
+          })
+        }
+        setWiringFrom(null)
+        setWiringMouse(null)
+      }
+    },
+    [components, wiringFrom, addCanvasWire]
+  )
+
+  // Cancel wiring on right-click
+  const handleSvgContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (wiringFrom) {
+        e.preventDefault()
+        setWiringFrom(null)
+        setWiringMouse(null)
+      }
+    },
+    [wiringFrom]
+  )
+
+  // --- Bug H1: Keyboard handler for Delete and Escape ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+        // Don't delete if user is typing in an input/textarea
+        const tag = (e.target as HTMLElement)?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return
+        handleDeleteSelected()
+      }
+      if (e.key === 'Escape') {
+        setSelectedId(null)
+        setWiringFrom(null)
+        setWiringMouse(null)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [selectedId, handleDeleteSelected])
 
   const isEmpty = components.length === 0
 
@@ -659,12 +761,26 @@ export default function CanvasPanel() {
             Delete
           </button>
         )}
+        {wiringFrom && (
+          <span
+            style={{
+              fontSize: 10,
+              color: '#1565C0',
+              marginLeft: 'auto',
+              fontFamily: 'Inter, sans-serif',
+              fontWeight: 500,
+            }}
+          >
+            Wiring: click target pin (Esc/right-click to cancel)
+          </span>
+        )}
       </div>
 
       {/* SVG Canvas */}
-      <div className="flex-1 relative overflow-hidden">
+      <div ref={containerRef} className="flex-1 relative overflow-hidden">
         <svg
           ref={svgRef}
+          viewBox={`0 0 ${svgSize.w} ${svgSize.h}`}
           width="100%"
           height="100%"
           xmlns="http://www.w3.org/2000/svg"
@@ -672,7 +788,8 @@ export default function CanvasPanel() {
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
           onClick={handleSvgClick}
-          style={{ cursor: dragging ? 'grabbing' : 'default' }}
+          onContextMenu={handleSvgContextMenu}
+          style={{ cursor: wiringFrom ? 'crosshair' : dragging ? 'grabbing' : 'default' }}
         >
           <defs>
             {/* Dot grid pattern */}
@@ -687,14 +804,14 @@ export default function CanvasPanel() {
           </defs>
 
           {/* Background */}
-          <rect width="100%" height="100%" fill="white" />
-          <rect width="100%" height="100%" fill="url(#dot-grid)" />
+          <rect width={svgSize.w} height={svgSize.h} fill="white" />
+          <rect width={svgSize.w} height={svgSize.h} fill="url(#dot-grid)" />
 
           {/* Empty state message */}
           {isEmpty && (
             <text
-              x="50%"
-              y="50%"
+              x={svgSize.w / 2}
+              y={svgSize.h / 2}
               textAnchor="middle"
               dominantBaseline="middle"
               fill="#BDBDBD"
@@ -710,6 +827,21 @@ export default function CanvasPanel() {
           {wires.map((w) => (
             <WirePath key={w.id} wire={w} components={components} />
           ))}
+
+          {/* Temporary wiring preview line */}
+          {wiringFrom && wiringMouse && (
+            <line
+              x1={wiringFrom.x}
+              y1={wiringFrom.y}
+              x2={wiringMouse.x}
+              y2={wiringMouse.y}
+              stroke="#1565C0"
+              strokeWidth={1.5}
+              strokeDasharray="6 3"
+              strokeLinecap="round"
+              pointerEvents="none"
+            />
+          )}
 
           {/* Components */}
           {components.map((comp) => {
@@ -737,6 +869,45 @@ export default function CanvasPanel() {
                   />
                 )}
                 {renderComponent(comp)}
+                {/* Clickable pin targets for wire creation */}
+                {def.pins.map((pin) => {
+                  let px = 0, py = 0
+                  switch (pin.side) {
+                    case 'left':   px = 0;          py = pin.offset; break
+                    case 'right':  px = def.width;   py = pin.offset; break
+                    case 'top':    px = pin.offset;  py = 0;          break
+                    case 'bottom': px = pin.offset;  py = def.height; break
+                  }
+                  const isSource =
+                    wiringFrom?.componentId === comp.id &&
+                    wiringFrom?.pin === pin.name
+                  const isHovered =
+                    hoveredPin?.componentId === comp.id &&
+                    hoveredPin?.pin === pin.name
+                  return (
+                    <circle
+                      key={pin.name}
+                      cx={px}
+                      cy={py}
+                      r={isSource || isHovered ? 6 : 5}
+                      fill={
+                        isSource
+                          ? '#1565C0'
+                          : isHovered
+                          ? '#42A5F5'
+                          : 'transparent'
+                      }
+                      stroke="transparent"
+                      strokeWidth={0}
+                      style={{ cursor: 'crosshair' }}
+                      onMouseDown={(e) => handlePinMouseDown(e, comp.id, pin.name)}
+                      onMouseEnter={() =>
+                        setHoveredPin({ componentId: comp.id, pin: pin.name })
+                      }
+                      onMouseLeave={() => setHoveredPin(null)}
+                    />
+                  )
+                })}
               </g>
             )
           })}
