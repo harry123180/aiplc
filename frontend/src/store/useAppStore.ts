@@ -60,7 +60,18 @@ export interface DrcResult {
   timestamp: number
 }
 
+export type ViewMode = 'code' | 'split' | 'circuit'
+export type Density = 'compact' | 'regular' | 'comfy'
+
 interface AppState {
+  // View mode (segmented control)
+  viewMode: ViewMode
+  setViewMode: (mode: ViewMode) => void
+
+  // UI density
+  density: Density
+  setDensity: (density: Density) => void
+
   // Editor
   code: string
   setCode: (code: string) => void
@@ -106,7 +117,7 @@ interface AppState {
   addSerialLine: (line: string) => void
   clearSerial: () => void
 
-  // Panel layout
+  // Panel layout (legacy — kept for compatibility)
   leftPanelWidth: number           // percentage (20-80), default 50
   setLeftPanelWidth: (w: number) => void
 
@@ -121,6 +132,24 @@ interface AppState {
 
   rightBottomTab: 'serial'               // default 'serial' (future: 'oscilloscope')
   setRightBottomTab: (tab: 'serial') => void
+
+  // Unified bottom dock
+  bottomDockOpen: boolean                 // default false
+  setBottomDockOpen: (open: boolean) => void
+  bottomDockTab: 'console' | 'errors' | 'serial'  // default 'console'
+  setBottomDockTab: (tab: 'console' | 'errors' | 'serial') => void
+  bottomDockHeight: number               // px, default 200
+  setBottomDockHeight: (h: number) => void
+
+  // Split view percentage
+  codeSplitPercent: number               // default 48
+  setCodeSplitPercent: (pct: number) => void
+
+  // Side panel collapse states
+  wsExplorerCollapsed: boolean           // default false
+  setWsExplorerCollapsed: (v: boolean) => void
+  compLibraryCollapsed: boolean          // default false
+  setCompLibraryCollapsed: (v: boolean) => void
 
   // AI Chat drawer
   isChatOpen: boolean              // default true
@@ -166,6 +195,14 @@ interface AppState {
 let messageIdCounter = 0
 
 const useAppStore = create<AppState>((set) => ({
+  // View mode
+  viewMode: 'split' as ViewMode,
+  setViewMode: (viewMode) => set({ viewMode }),
+
+  // UI density
+  density: 'regular' as Density,
+  setDensity: (density) => set({ density }),
+
   // Editor
   code: `#include "aiplc.h"
 
@@ -304,7 +341,18 @@ void PLC_Scan() {
 
   // Simulation
   isSimulating: false,
-  setIsSimulating: (isSimulating) => set({ isSimulating }),
+  setIsSimulating: (isSimulating) => {
+    if (isSimulating) {
+      set({
+        isSimulating,
+        viewMode: 'circuit' as ViewMode,
+        bottomDockOpen: true,
+        bottomDockTab: 'serial' as const,
+      })
+    } else {
+      set({ isSimulating })
+    }
+  },
 
   // Serial Monitor
   serialOutput: [],
@@ -327,6 +375,24 @@ void PLC_Scan() {
 
   rightBottomTab: 'serial',
   setRightBottomTab: (rightBottomTab) => set({ rightBottomTab }),
+
+  // Unified bottom dock
+  bottomDockOpen: false,
+  setBottomDockOpen: (bottomDockOpen) => set({ bottomDockOpen }),
+  bottomDockTab: 'console',
+  setBottomDockTab: (bottomDockTab) => set({ bottomDockTab }),
+  bottomDockHeight: 200,
+  setBottomDockHeight: (bottomDockHeight) => set({ bottomDockHeight }),
+
+  // Split view percentage
+  codeSplitPercent: 48,
+  setCodeSplitPercent: (codeSplitPercent) => set({ codeSplitPercent }),
+
+  // Side panel collapse states
+  wsExplorerCollapsed: false,
+  setWsExplorerCollapsed: (wsExplorerCollapsed) => set({ wsExplorerCollapsed }),
+  compLibraryCollapsed: false,
+  setCompLibraryCollapsed: (compLibraryCollapsed) => set({ compLibraryCollapsed }),
 
   // AI Chat drawer
   isChatOpen: true,

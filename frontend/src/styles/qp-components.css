@@ -1,0 +1,334 @@
+/* ──────────────────────────────────────────────────────────
+   QianPro Design System — Reusable Component Classes
+   ────────────────────────────────────────────────────────── */
+
+/* ── Scrollbars ─────────────────────────────────── */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #c2cbd8;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9aa6b8;
+  background-clip: content-box;
+}
+.code-scroll::-webkit-scrollbar-thumb {
+  background: #2a3f5e;
+  background-clip: content-box;
+}
+
+/* ── Eyebrow label ─────────────────────────────── */
+.qp-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--qp-track-label);
+  text-transform: uppercase;
+  color: var(--qp-primary-light);
+}
+
+/* ── Icon button ───────────────────────────────── */
+.qp-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--qp-r-sm);
+  border: 1px solid var(--qp-border);
+  background: var(--qp-bg);
+  color: var(--qp-text-muted);
+  cursor: pointer;
+  transition: background var(--qp-dur-fast) var(--qp-ease),
+              color var(--qp-dur-fast) var(--qp-ease),
+              border-color var(--qp-dur-fast) var(--qp-ease);
+}
+.qp-icon-btn:hover {
+  background: var(--qp-bg-tint);
+  color: var(--qp-primary);
+  border-color: var(--qp-border-strong);
+}
+.qp-icon-btn.active {
+  background: var(--qp-bg-tint);
+  color: var(--qp-primary);
+  border-color: #bcd2f5;
+}
+.qp-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.qp-icon-btn:disabled:hover {
+  background: var(--qp-bg);
+  color: var(--qp-text-muted);
+  border-color: var(--qp-border);
+}
+
+/* ── Button ────────────────────────────────────── */
+.qp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  height: 34px;
+  border-radius: var(--qp-r-md);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--qp-font-sans);
+  border: 1px solid var(--qp-border);
+  background: var(--qp-bg);
+  color: var(--qp-text-body);
+  cursor: pointer;
+  transition: all var(--qp-dur-fast) var(--qp-ease);
+  white-space: nowrap;
+}
+.qp-btn:hover {
+  background: var(--qp-bg-tint);
+  border-color: var(--qp-border-strong);
+  color: var(--qp-primary);
+}
+
+.qp-btn-primary {
+  background: var(--qp-primary);
+  border-color: var(--qp-primary);
+  color: #fff;
+}
+.qp-btn-primary:hover {
+  background: var(--qp-primary-dark);
+  border-color: var(--qp-primary-dark);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: var(--qp-shadow-glow);
+}
+
+.qp-btn-run {
+  background: var(--qp-success);
+  border-color: var(--qp-success);
+  color: #fff;
+}
+.qp-btn-run:hover {
+  background: #1aa84e;
+  border-color: #1aa84e;
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 18px rgba(34,197,94,0.4);
+}
+
+.qp-btn-stop {
+  background: var(--qp-error);
+  border-color: var(--qp-error);
+  color: #fff;
+}
+.qp-btn-stop:hover {
+  background: #c92f2f;
+  border-color: #c92f2f;
+  color: #fff;
+}
+
+/* ── Segmented control ─────────────────────────── */
+.qp-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--qp-r-md);
+  background: var(--qp-bg-alt);
+  border: 1px solid var(--qp-border);
+}
+.qp-seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 13px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: var(--qp-font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--qp-text-muted);
+  transition: all var(--qp-dur-fast) var(--qp-ease);
+}
+.qp-seg button:hover {
+  color: var(--qp-primary);
+}
+.qp-seg button.active {
+  background: var(--qp-bg);
+  color: var(--qp-primary);
+  box-shadow: var(--qp-shadow-sm);
+}
+
+/* ── Chip ──────────────────────────────────────── */
+.qp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: var(--qp-r-pill);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--qp-border);
+  background: var(--qp-bg);
+  color: var(--qp-text-body);
+  transition: all var(--qp-dur-fast) var(--qp-ease);
+}
+.qp-chip:hover {
+  border-color: #bcd2f5;
+  background: var(--qp-bg-tint);
+  color: var(--qp-primary);
+}
+
+/* ── Status pill ───────────────────────────────── */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--qp-r-pill);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ── Panel header strip ────────────────────────── */
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--qp-border);
+  background: var(--qp-bg);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--qp-text-muted);
+}
+.panel-head .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* ── File tab ──────────────────────────────────── */
+.file-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  padding: 0 14px;
+  border-right: 1px solid var(--qp-border);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--qp-text);
+  background: var(--qp-bg);
+}
+.file-tab .seam {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: var(--qp-grad-seam);
+}
+
+/* ── Dock tab ──────────────────────────────────── */
+.dock-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  font-family: var(--qp-font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--qp-text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all var(--qp-dur-fast) var(--qp-ease);
+}
+.dock-tab:hover {
+  color: var(--qp-primary);
+}
+.dock-tab.active {
+  color: var(--qp-primary);
+  border-bottom-color: var(--qp-primary);
+}
+
+/* ── Resize handles ────────────────────────────── */
+.resize-x {
+  width: 6px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  background: transparent;
+  position: relative;
+  z-index: 5;
+  transition: background var(--qp-dur-fast);
+}
+.resize-x:hover,
+.resize-x.dragging {
+  background: rgba(45,107,228,0.25);
+}
+
+.resize-y {
+  height: 6px;
+  cursor: row-resize;
+  flex-shrink: 0;
+  background: transparent;
+  position: relative;
+  z-index: 5;
+  transition: background var(--qp-dur-fast);
+}
+.resize-y:hover,
+.resize-y.dragging {
+  background: rgba(45,107,228,0.25);
+}
+
+/* ── Live dot (blink for simulation) ───────────── */
+.live-dot {
+  animation: qp-blink 1.2s var(--qp-ease) infinite;
+}
+
+/* ── Fade-in animation ─────────────────────────── */
+.fade-in {
+  animation: qp-fade-in var(--qp-dur-slow) var(--qp-ease) both;
+}
+
+/* ── Code row hover ────────────────────────────── */
+.code-row:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+/* ── Terminal ──────────────────────────────────── */
+.terminal {
+  font-family: var(--qp-font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  background: var(--code-bg);
+  color: #cfe0f5;
+  height: 100%;
+  overflow-y: auto;
+  padding: 10px 14px;
+}
+.terminal .ts { color: #5b7090; }
+.terminal .ok { color: var(--qp-success); }
+.terminal .info { color: var(--qp-accent); }
+.terminal .warn { color: #ffce6b; }
+
+/* ── Spin animation ────────────────────────────── */
+.spin-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: qp-spin 3s linear infinite;
+}
+
+/* ── Responsive ────────────────────────────────── */
+@media (max-width: 1100px) {
+  .seg-label { display: none; }
+  .qp-seg button { padding: 0 10px; }
+}

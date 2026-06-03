@@ -1,7 +1,27 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Loader2, ChevronDown, ChevronRight, Wrench, Bot, User } from 'lucide-react'
+import {
+  Send,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  Wrench,
+  Sparkles,
+  X,
+  Maximize2,
+  Minimize2,
+  PanelRight,
+  Lightbulb,
+} from 'lucide-react'
 import useAppStore from '../store/useAppStore'
 import type { ChatMessage } from '../store/useAppStore'
+
+/* ─── Props accepted from ChatDock ──────────────────────── */
+interface ChatPanelProps {
+  onClose?: () => void
+  onToggleFullscreen?: () => void
+  onCollapse?: (() => void) | undefined
+  fullscreen?: boolean
+}
 
 /**
  * Apply an MCP tool result to the Canvas/Editor Zustand store.
@@ -66,43 +86,64 @@ function applyToolResult(toolName: string, result: Record<string, unknown>) {
   }
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+/* ─── Suggestion chips ──────────────────────────────────── */
+const SUGGESTIONS = ['放置元件', '生成程式碼', '檢查電路', '解釋邏輯']
+
+/* ─── Message bubble ────────────────────────────────────── */
+function MessageBubble({ message, maxWidth }: { message: ChatMessage; maxWidth?: string }) {
   const { toggleMessageCollapse } = useAppStore()
 
   if (message.role === 'tool') {
     return (
-      <div className="flex justify-start mb-3">
+      <div style={{ display: 'flex', marginBottom: 10 }}>
         <div
-          className="max-w-[85%] rounded-lg overflow-hidden"
+          className="tool-card"
           style={{
-            border: '1px solid var(--color-green)',
-            borderRadius: 'var(--radius)',
+            border: '1px solid #bcd2f5',
+            borderRadius: 'var(--qp-r-md)',
+            overflow: 'hidden',
+            maxWidth: maxWidth ?? '90%',
+            borderLeft: '3px solid var(--qp-success)',
           }}
         >
           <button
             onClick={() => toggleMessageCollapse(message.id)}
-            className="flex items-center gap-2 w-full px-3 py-2 text-xs font-medium
-                       cursor-pointer border-none text-left"
+            className="tc-head"
             style={{
-              background: '#E8F5E9',
-              color: 'var(--color-text)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '7px 11px',
+              fontSize: 12,
+              fontWeight: 600,
+              background: 'var(--qp-bg-tint)',
+              color: 'var(--qp-primary)',
+              cursor: 'pointer',
+              border: 'none',
+              width: '100%',
+              textAlign: 'left',
             }}
           >
-            <Wrench size={14} style={{ color: 'var(--color-green)' }} />
-            <span className="flex-1">{message.toolName ?? 'Tool Call'}</span>
+            <Wrench size={13} style={{ color: 'var(--qp-primary)' }} />
+            <span style={{ flex: 1 }}>{message.toolName ?? 'Tool Call'}</span>
             {message.isCollapsed ? (
-              <ChevronRight size={14} />
+              <ChevronRight size={13} style={{ color: 'var(--qp-primary)' }} />
             ) : (
-              <ChevronDown size={14} />
+              <ChevronDown size={13} style={{ color: 'var(--qp-primary)' }} />
             )}
           </button>
           {!message.isCollapsed && (
             <div
-              className="px-3 py-2 text-xs font-mono whitespace-pre-wrap"
+              className="tc-body"
               style={{
-                background: '#F9FBF9',
-                color: 'var(--color-text-secondary)',
-                borderTop: '1px solid var(--color-green)',
+                padding: '8px 11px',
+                fontFamily: 'var(--qp-font-mono)',
+                fontSize: 11,
+                color: 'var(--qp-text-muted)',
+                background: '#fbfdff',
+                borderTop: '1px solid #e0eafc',
+                whiteSpace: 'pre-wrap',
+                lineHeight: 1.5,
               }}
             >
               {message.content}
@@ -116,36 +157,47 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
-      <div className="flex items-start gap-2 max-w-[85%]">
-        {!isUser && (
-          <div
-            className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-0.5"
-            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-          >
-            <Bot size={14} style={{ color: 'var(--color-text-secondary)' }} />
-          </div>
-        )}
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: isUser ? 'flex-end' : 'flex-start',
+        gap: 8,
+        marginBottom: 12,
+      }}
+    >
+      {!isUser && (
         <div
-          className="px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"
           style={{
-            background: isUser ? 'var(--color-blue)' : 'var(--color-bg)',
-            color: isUser ? '#FFFFFF' : 'var(--color-text)',
-            borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-            border: isUser ? 'none' : '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-sm)',
+            flexShrink: 0,
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'var(--qp-bg-tint)',
+            border: '1px solid #cfe0f5',
           }}
         >
-          {message.content}
+          <Sparkles size={15} style={{ color: 'var(--qp-primary)' }} />
         </div>
-        {isUser && (
-          <div
-            className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-0.5"
-            style={{ background: 'var(--color-blue)' }}
-          >
-            <User size={14} style={{ color: '#FFFFFF' }} />
-          </div>
-        )}
+      )}
+      <div
+        className={isUser ? 'bubble-user' : 'bubble-ai'}
+        style={{
+          whiteSpace: 'pre-wrap',
+          background: isUser ? 'var(--qp-primary)' : 'var(--qp-surface)',
+          color: isUser ? '#fff' : 'var(--qp-text)',
+          borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+          border: isUser ? 'none' : '1px solid var(--qp-border)',
+          padding: '9px 13px',
+          fontSize: 13,
+          lineHeight: 1.55,
+          maxWidth: maxWidth ?? '85%',
+          boxShadow: 'var(--qp-shadow-sm)',
+        }}
+      >
+        {message.content}
       </div>
     </div>
   )
@@ -171,7 +223,12 @@ function parseSSE(raw: string): Array<{ event: string; data: string }> {
   return events
 }
 
-export default function ChatPanel() {
+export default function ChatPanel({
+  onClose,
+  onToggleFullscreen,
+  onCollapse,
+  fullscreen = false,
+}: ChatPanelProps) {
   const [input, setInput] = useState('')
   const {
     messages,
@@ -367,91 +424,271 @@ export default function ChatPanel() {
   const sendDisabled = isStreaming || !input.trim()
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        background: 'var(--qp-bg-alt)',
+      }}
+    >
+      {/* ── Header ───────────────────────────────────── */}
       <div
-        className="flex items-center px-4 h-9 text-xs font-medium border-b shrink-0"
+        className="panel-head"
         style={{
-          color: 'var(--color-text-secondary)',
-          borderColor: 'var(--color-border)',
-          background: 'var(--color-surface)',
+          background: 'var(--qp-navy-800)',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid var(--qp-border)',
+          height: 42,
+          padding: '0 12px',
+          flexShrink: 0,
         }}
       >
-        <Bot size={14} className="mr-1.5" />
-        AI Chat
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: 6,
+              background: 'var(--qp-grad-cta)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Sparkles size={13} color="#fff" />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
+            <span
+              className="qp-eyebrow"
+              style={{ fontSize: 9 }}
+            >
+              AI ASSISTANT
+            </span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
+              PLC 設計助手
+            </span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {onCollapse && (
+            <button
+              className="qp-icon-btn"
+              style={{
+                width: 28,
+                height: 28,
+                background: 'transparent',
+                border: '1px solid rgba(255,255,255,0.15)',
+                color: 'var(--qp-text-dim)',
+              }}
+              onClick={onCollapse}
+              title="縮起 AI Chat"
+            >
+              <PanelRight size={15} />
+            </button>
+          )}
+          {onToggleFullscreen && (
+            <button
+              className="qp-icon-btn"
+              style={{
+                width: 28,
+                height: 28,
+                background: 'transparent',
+                border: '1px solid rgba(255,255,255,0.15)',
+                color: 'var(--qp-text-dim)',
+              }}
+              onClick={onToggleFullscreen}
+              title={fullscreen ? '退出全螢幕' : '全螢幕'}
+            >
+              {fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            </button>
+          )}
+          {onClose && (
+            <button
+              className="qp-icon-btn"
+              style={{
+                width: 28,
+                height: 28,
+                background: 'transparent',
+                border: '1px solid rgba(255,255,255,0.15)',
+                color: 'var(--qp-text-dim)',
+              }}
+              onClick={onClose}
+              title="關閉 AI Chat"
+            >
+              <X size={15} />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 min-h-0">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center mb-3"
-              style={{ background: 'var(--color-surface)' }}
-            >
-              <Bot size={24} style={{ color: 'var(--color-blue)' }} />
-            </div>
-            <p
-              className="text-sm font-medium mb-1"
-              style={{ color: 'var(--color-text)' }}
-            >
-              AI PLC Assistant
-            </p>
-            <p
-              className="text-xs max-w-[200px]"
-              style={{ color: 'var(--color-text-secondary)' }}
-            >
-              Ask me to generate, explain, or debug your PLC code.
-            </p>
-          </div>
-        )}
-
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
-
-        {isStreaming && (
-          <div className="flex justify-start mb-3">
-            <div className="flex items-center gap-2 px-3 py-2 text-xs"
-              style={{ color: 'var(--color-text-secondary)' }}
-            >
-              <Loader2 size={14} className="animate-spin" />
-              <span>AI is thinking...</span>
-            </div>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input */}
+      {/* ── Messages ─────────────────────────────────── */}
       <div
-        className="shrink-0 p-3 border-t"
-        style={{ borderColor: 'var(--color-border)', position: 'relative' }}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: 16,
+          minHeight: 0,
+        }}
       >
+        <div style={{ maxWidth: fullscreen ? 760 : '100%', margin: '0 auto' }}>
+          {messages.length === 0 && (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                minHeight: 200,
+                textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 14,
+                  background: 'var(--qp-grad-cta)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 12,
+                  boxShadow: 'var(--qp-shadow-sm)',
+                }}
+              >
+                <Sparkles size={24} color="#fff" />
+              </div>
+              <p
+                style={{
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: 'var(--qp-text)',
+                  marginBottom: 4,
+                }}
+              >
+                PLC 設計助手
+              </p>
+              <p
+                style={{
+                  fontSize: 13,
+                  color: 'var(--qp-text-muted)',
+                  maxWidth: 220,
+                }}
+              >
+                描述你的控制需求，或請 AI 修改線路與程式...
+              </p>
+            </div>
+          )}
+
+          {messages.map((msg) => (
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              maxWidth={fullscreen ? '80%' : '85%'}
+            />
+          ))}
+
+          {isStreaming && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-start',
+                marginBottom: 12,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '6px 12px',
+                  fontSize: 12,
+                  color: 'var(--qp-text-muted)',
+                }}
+              >
+                <Loader2
+                  size={14}
+                  style={{ animation: 'qp-spin 1s linear infinite' }}
+                />
+                <span>AI is thinking...</span>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+      </div>
+
+      {/* ── Input area ───────────────────────────────── */}
+      <div
+        style={{
+          flexShrink: 0,
+          padding: '10px 14px',
+          borderTop: '1px solid var(--qp-border)',
+          background: 'var(--qp-bg)',
+        }}
+      >
+        {/* Suggestion chips */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 9, flexWrap: 'wrap' }}>
+          {SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              className="qp-chip"
+              onClick={() => setInput(s)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '4px 11px',
+                borderRadius: 'var(--qp-r-pill)',
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: 'pointer',
+                border: '1px solid var(--qp-border)',
+                background: 'var(--qp-bg)',
+                color: 'var(--qp-text-body)',
+                transition: 'all var(--qp-dur-fast) var(--qp-ease)',
+              }}
+            >
+              <Lightbulb size={12} style={{ color: 'var(--qp-primary-light)' }} />
+              {s}
+            </button>
+          ))}
+        </div>
+
+        {/* Text input + send */}
         <div
-          className="flex items-end gap-2 rounded-xl p-1"
           style={{
-            border: '1px solid var(--color-border)',
-            background: 'var(--color-surface)',
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: 8,
+            padding: 6,
+            borderRadius: 'var(--qp-r-lg)',
+            border: '1.5px solid var(--qp-border)',
+            background: 'var(--qp-surface)',
           }}
         >
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="輸入訊息..."
+            placeholder="描述你的控制需求，或請 AI 修改線路與程式..."
             rows={1}
             disabled={isStreaming}
-            className="flex-1 resize-none bg-transparent border-none outline-none px-3 py-2 text-sm"
             style={{
-              color: 'var(--color-text)',
-              fontFamily: "'Inter', sans-serif",
-              minHeight: '40px',
-              maxHeight: '120px',
+              flex: 1,
+              resize: 'none',
+              border: 'none',
+              outline: 'none',
+              background: 'transparent',
+              fontFamily: 'var(--qp-font-sans)',
+              fontSize: 13,
+              color: 'var(--qp-text)',
+              padding: '6px 8px',
+              maxHeight: 120,
+              minHeight: 32,
               cursor: 'text',
-              position: 'relative',
-              zIndex: 1,
             }}
             onInput={(e) => {
               const el = e.currentTarget
@@ -462,17 +699,29 @@ export default function ChatPanel() {
           <button
             onClick={handleSend}
             disabled={sendDisabled}
-            className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center
-                       transition-colors cursor-pointer border-none"
             style={{
-              background: sendDisabled ? 'var(--color-border)' : 'var(--color-blue)',
-              opacity: sendDisabled ? 0.5 : 1,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 34,
+              height: 34,
+              borderRadius: 'var(--qp-r-sm)',
+              border: 'none',
+              background: sendDisabled ? 'var(--qp-border)' : 'var(--qp-primary)',
+              borderColor: 'transparent',
+              cursor: sendDisabled ? 'default' : 'pointer',
+              transition: 'background var(--qp-dur-fast) var(--qp-ease)',
+              opacity: sendDisabled ? 0.6 : 1,
             }}
           >
             {isStreaming ? (
-              <Loader2 size={14} className="animate-spin" style={{ color: '#FFFFFF' }} />
+              <Loader2
+                size={15}
+                color="#fff"
+                style={{ animation: 'qp-spin 1s linear infinite' }}
+              />
             ) : (
-              <Send size={14} style={{ color: '#FFFFFF' }} />
+              <Send size={15} color="#fff" />
             )}
           </button>
         </div>

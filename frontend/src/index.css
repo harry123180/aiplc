@@ -1,20 +1,23 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
+@import './styles/qp-tokens.css';
+@import './styles/qp-components.css';
 
-/* Google Slides-inspired clean design tokens */
+/* Backward-compatible aliases mapping old tokens to QianPro design system */
 :root {
-  --color-blue: #4285F4;
-  --color-red: #EA4335;
-  --color-yellow: #FBBC04;
-  --color-green: #34A853;
-  --color-bg: #FFFFFF;
-  --color-surface: #F8F9FA;
-  --color-border: #E0E0E0;
-  --color-text: #202124;
-  --color-text-secondary: #5F6368;
-  --radius: 8px;
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --color-blue: var(--qp-primary);
+  --color-red: var(--qp-error);
+  --color-yellow: var(--qp-warn);
+  --color-green: var(--qp-success);
+  --color-bg: var(--qp-bg);
+  --color-surface: var(--qp-surface);
+  --color-border: var(--qp-border);
+  --color-text: var(--qp-text);
+  --color-text-secondary: var(--qp-text-2);
+  --radius: var(--qp-r-sm);
+  --shadow-sm: var(--qp-shadow-sm);
+  --shadow-md: var(--qp-shadow);
+  --shadow-lg: var(--qp-shadow-md);
 }
 
 * {

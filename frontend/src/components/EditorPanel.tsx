@@ -298,14 +298,14 @@ export default function EditorPanel() {
       <div
         className="flex items-center px-4 h-9 text-xs font-medium border-b shrink-0"
         style={{
-          color: 'var(--color-text-secondary)',
-          borderColor: 'var(--color-border)',
-          background: 'var(--color-surface)',
+          color: 'var(--code-text, #d6e2f5)',
+          borderColor: 'var(--qp-border, #e5e7eb)',
+          background: 'var(--code-bg, #0b1a30)',
         }}
       >
         main.c
       </div>
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0" style={{ background: 'var(--code-bg, #0b1a30)' }}>
         <Editor
           height="100%"
           language="c"
@@ -315,7 +315,7 @@ export default function EditorPanel() {
           onMount={onMount}
           options={{
             fontSize: 14,
-            fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+            fontFamily: "var(--qp-font-mono, 'JetBrains Mono'), 'Fira Code', Consolas, monospace",
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             padding: { top: 12, bottom: 12 },

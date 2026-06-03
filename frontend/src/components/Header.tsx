@@ -3,6 +3,8 @@ import { Settings, Play, Square, Shield, MessageSquare, Undo2, Redo2 } from 'luc
 import useAppStore from '../store/useAppStore'
 import { runDrc } from '../utils/circuitVerifier'
 import DrcVerificationModal from './DrcVerificationModal'
+import BrandMark from './ui/BrandMark'
+import SegmentedControl from './ui/SegmentedControl'
 
 export default function Header() {
   const {
@@ -18,6 +20,8 @@ export default function Header() {
     clearHighlights,
     undoStack,
     redoStack,
+    viewMode,
+    setViewMode,
   } = useAppStore()
 
   const canUndoNow = undoStack.length > 0
@@ -85,173 +89,100 @@ export default function Header() {
   return (
     <>
       <header
-        className="flex items-center justify-between px-5 h-12 border-b"
         style={{
-          borderColor: 'var(--color-border)',
-          background: 'var(--color-bg)',
-          boxShadow: 'var(--shadow-sm)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 14,
+          height: 58,
+          padding: '0 18px',
+          borderBottom: '1px solid var(--qp-border)',
+          background: 'var(--qp-header)',
+          boxShadow: 'var(--qp-shadow-sm)',
+          flexShrink: 0,
+          zIndex: 20,
         }}
       >
-        {/* Logo */}
-        <div className="flex items-center gap-2">
-          <div
-            className="flex items-center justify-center w-7 h-7 rounded"
-            style={{ background: 'var(--color-blue)' }}
-          >
-            <span className="text-white text-xs font-bold">AI</span>
-          </div>
-          <h1
-            className="text-lg font-semibold tracking-tight"
-            style={{ color: 'var(--color-text)' }}
-          >
-            AIPLC
-          </h1>
-        </div>
+        {/* Left: Brand + divider + Undo/Redo */}
+        <BrandMark />
 
-        {/* Actions */}
-        <div className="flex items-center gap-2">
-          {/* Undo / Redo */}
+        <div style={{ width: 1, height: 24, background: 'var(--qp-border)' }} />
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <button
+            className="qp-icon-btn"
             onClick={() => useAppStore.getState().undo()}
             disabled={!canUndoNow}
-            className="flex items-center justify-center w-8 h-8 rounded-lg
-                       transition-colors cursor-pointer border"
-            style={{
-              color: canUndoNow ? 'var(--color-text-secondary)' : '#BDBDBD',
-              borderColor: 'var(--color-border)',
-              background: 'var(--color-bg)',
-              cursor: canUndoNow ? 'pointer' : 'default',
-              opacity: canUndoNow ? 1 : 0.5,
-            }}
-            onMouseEnter={(e) => {
-              if (canUndoNow) e.currentTarget.style.background = 'var(--color-surface)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--color-bg)'
-            }}
             title="Undo (Ctrl+Z)"
           >
-            <Undo2 size={16} />
+            <Undo2 size={15} />
           </button>
           <button
+            className="qp-icon-btn"
             onClick={() => useAppStore.getState().redo()}
             disabled={!canRedoNow}
-            className="flex items-center justify-center w-8 h-8 rounded-lg
-                       transition-colors cursor-pointer border"
-            style={{
-              color: canRedoNow ? 'var(--color-text-secondary)' : '#BDBDBD',
-              borderColor: 'var(--color-border)',
-              background: 'var(--color-bg)',
-              cursor: canRedoNow ? 'pointer' : 'default',
-              opacity: canRedoNow ? 1 : 0.5,
-            }}
-            onMouseEnter={(e) => {
-              if (canRedoNow) e.currentTarget.style.background = 'var(--color-surface)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--color-bg)'
-            }}
             title="Redo (Ctrl+Shift+Z)"
           >
-            <Redo2 size={16} />
-          </button>
-
-          <div style={{ width: 1, height: 20, background: 'var(--color-border)' }} />
-
-          <button
-            onClick={() => setMcpModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg
-                       transition-colors cursor-pointer border"
-            style={{
-              color: 'var(--color-text-secondary)',
-              borderColor: 'var(--color-border)',
-              background: 'var(--color-bg)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--color-surface)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--color-bg)'
-            }}
-          >
-            <Settings size={16} />
-            MCP Settings
-          </button>
-
-          {/* DRC Check button */}
-          <button
-            onClick={handleDrcCheck}
-            className="relative flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg
-                       transition-colors cursor-pointer border"
-            style={{
-              color: 'var(--color-text-secondary)',
-              borderColor: 'var(--color-border)',
-              background: 'var(--color-bg)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--color-surface)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'var(--color-bg)'
-            }}
-            title="Design Rule Check"
-          >
-            <Shield size={16} />
-            Check
-            {/* DRC badge indicator */}
-            {drcResults && (drcErrors > 0 || drcWarnings > 0) && (
-              <span
-                className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full"
-                style={{
-                  background: drcErrors > 0 ? 'var(--color-red)' : 'var(--color-yellow)',
-                }}
-              />
-            )}
-          </button>
-
-          <button
-            onClick={handleRun}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white
-                       rounded-lg transition-colors cursor-pointer border-none"
-            style={{
-              background: isSimulating ? 'var(--color-red)' : 'var(--color-blue)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.opacity = '0.9'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = '1'
-            }}
-          >
-            {isSimulating ? <Square size={16} /> : <Play size={16} />}
-            {isSimulating ? 'Stop' : 'Run'}
-          </button>
-
-          {/* AI Chat toggle */}
-          <button
-            onClick={() => setChatOpen(!isChatOpen)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg
-                       transition-colors cursor-pointer border"
-            style={{
-              color: isChatOpen ? 'var(--color-blue)' : 'var(--color-text-secondary)',
-              borderColor: isChatOpen ? 'var(--color-blue)' : 'var(--color-border)',
-              background: isChatOpen ? '#E8F0FE' : 'var(--color-bg)',
-            }}
-            onMouseEnter={(e) => {
-              if (!isChatOpen) {
-                e.currentTarget.style.background = 'var(--color-surface)'
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!isChatOpen) {
-                e.currentTarget.style.background = 'var(--color-bg)'
-              }
-            }}
-            title="Toggle AI Chat"
-          >
-            <MessageSquare size={16} />
+            <Redo2 size={15} />
           </button>
         </div>
+
+        {/* Center: Segmented Control */}
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          <SegmentedControl
+            view={viewMode}
+            onChange={setViewMode}
+            isSimulating={isSimulating}
+          />
+        </div>
+
+        {/* Right: Settings + Check + Run/Stop + Chat toggle */}
+        <button
+          className="qp-icon-btn"
+          onClick={() => setMcpModalOpen(true)}
+          title="設定"
+        >
+          <Settings size={16} />
+        </button>
+
+        <button
+          className="qp-btn"
+          onClick={handleDrcCheck}
+          title="Design Rule Check"
+          style={{ position: 'relative' }}
+        >
+          <Shield size={15} />
+          檢查
+          {/* DRC badge indicator */}
+          {drcResults && (drcErrors > 0 || drcWarnings > 0) && (
+            <span
+              style={{
+                position: 'absolute',
+                top: -3,
+                right: -3,
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: drcErrors > 0 ? 'var(--qp-error)' : 'var(--qp-warn)',
+              }}
+            />
+          )}
+        </button>
+
+        <button
+          className={`qp-btn ${isSimulating ? 'qp-btn-stop' : 'qp-btn-run'}`}
+          onClick={handleRun}
+        >
+          {isSimulating ? <Square size={15} /> : <Play size={15} fill="currentColor" stroke="none" />}
+          {isSimulating ? '停止模擬' : '執行'}
+        </button>
+
+        <button
+          className={`qp-icon-btn${isChatOpen ? ' active' : ''}`}
+          onClick={() => setChatOpen(!isChatOpen)}
+          title="Toggle AI Chat"
+        >
+          <MessageSquare size={16} />
+        </button>
       </header>
 
       {/* DRC Verification Modal */}

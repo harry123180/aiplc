@@ -1,0 +1,117 @@
+/* ──────────────────────────────────────────────────────────
+   QianPro Design System — CSS Tokens
+   Extracted from QianPro Industrial Blue design system.
+   ────────────────────────────────────────────────────────── */
+
+/* Google Fonts: imported via index.css to ensure @import order */
+
+:root {
+  /* Brand blues */
+  --qp-primary:       #1a4fa0;
+  --qp-primary-dark:  #0f3070;
+  --qp-primary-light: #2d6be4;
+  --qp-accent:        #00c2ff;
+
+  /* Navy (code editor + dark chrome) */
+  --qp-navy-900: #0a1628;
+  --qp-navy-800: #0d1f3c;
+  --qp-navy-700: #1a3a6e;
+  --qp-navy-600: #0f2a5a;
+
+  /* Neutrals */
+  --qp-text:        #1a1a2e;
+  --qp-text-strong: #0d1f3c;
+  --qp-text-body:   #374151;
+  --qp-text-muted:  #6b7280;
+  --qp-text-dim:    #9ca3af;
+  --qp-text-2:      #6b7280;
+
+  --qp-bg:        #ffffff;
+  --qp-bg-alt:    #f8fafc;
+  --qp-bg-tint:   #f0f5ff;
+  --qp-border:    #e5e7eb;
+  --qp-border-strong: #d4dae3;
+  --qp-surface:   #f8fafc;
+  --qp-header:    #ffffff;
+
+  --qp-error:   #e53e3e;
+  --qp-warn:    #f59e0b;
+  --qp-success: #22c55e;
+
+  /* Gradients */
+  --qp-grad-cta:    linear-gradient(135deg, #0d1f3c, #1a4fa0);
+  --qp-grad-accent: linear-gradient(90deg, #00c2ff, #4d9fff);
+  --qp-grad-seam:   linear-gradient(90deg, #1a4fa0, #00c2ff);
+
+  /* Shadows */
+  --qp-shadow-sm: 0 2px 16px rgba(10,22,40,0.06);
+  --qp-shadow:    0 4px 24px rgba(10,22,40,0.08);
+  --qp-shadow-md: 0 12px 40px rgba(10,22,40,0.14);
+  --qp-shadow-glow: 0 4px 20px rgba(45,107,228,0.4);
+
+  /* Radii */
+  --qp-r-xs: 6px;
+  --qp-r-sm: 8px;
+  --qp-r-md: 10px;
+  --qp-r-lg: 12px;
+  --qp-r-xl: 14px;
+  --qp-r-2xl: 16px;
+  --qp-r-pill: 100px;
+
+  /* Type */
+  --qp-font-sans: 'Inter', 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+  --qp-font-zh:   'Noto Sans TC', 'Inter', sans-serif;
+  --qp-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --qp-track-label: 0.15em;
+
+  /* Motion */
+  --qp-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --qp-dur-fast: 150ms;
+  --qp-dur-base: 200ms;
+  --qp-dur-slow: 320ms;
+
+  /* Code editor dark surface */
+  --code-bg:      #0b1a30;
+  --code-bg-2:    #0d2038;
+  --code-gutter:  #5b6b86;
+  --code-line:    rgba(255,255,255,0.05);
+  --code-text:    #d6e2f5;
+  --code-kw:      #5b9bff;
+  --code-fn:      #00c2ff;
+  --code-type:    #6fd3c4;
+  --code-str:     #7fd88f;
+  --code-num:     #c7a9ff;
+  --code-com:     #5b7090;
+  --code-punc:    #9fb2cc;
+}
+
+/* ── Density driver ─────────────────────────────── */
+[data-density="compact"] { --pad-y: 4px;  --row-h: 30px; --gap: 6px;  }
+[data-density="regular"] { --pad-y: 7px;  --row-h: 36px; --gap: 8px;  }
+[data-density="comfy"]   { --pad-y: 10px; --row-h: 42px; --gap: 12px; }
+
+/* ── Keyframes ──────────────────────────────────── */
+@keyframes qp-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes qp-pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+  70% { box-shadow: 0 0 0 7px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+
+@keyframes qp-flow {
+  to { stroke-dashoffset: -24; }
+}
+
+@keyframes qp-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes qp-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
