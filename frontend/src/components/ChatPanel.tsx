@@ -88,15 +88,18 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   )
 }
 
-/** Parse a raw SSE chunk into individual events. */
+/** Parse a raw SSE chunk into individual events.
+ *  Handles both \n\n and \r\n\r\n as block delimiters (sse-starlette may use either). */
 function parseSSE(raw: string): Array<{ event: string; data: string }> {
   const events: Array<{ event: string; data: string }> = []
-  const blocks = raw.split(/\n\n/)
+  // Split on double newline — supports \n\n, \r\n\r\n, and mixed
+  const blocks = raw.split(/\r?\n\r?\n/)
   for (const block of blocks) {
     if (!block.trim()) continue
     let event = 'message'
     let data = ''
-    for (const line of block.split('\n')) {
+    // Split lines within a block — supports both \n and \r\n
+    for (const line of block.split(/\r?\n/)) {
       if (line.startsWith('event:')) event = line.slice(6).trim()
       else if (line.startsWith('data:')) data += (data ? '\n' : '') + line.slice(5).trim()
     }
@@ -178,6 +181,7 @@ export default function ChatPanel() {
             switch (evt.event) {
               case 'content': {
                 const parsed = JSON.parse(evt.data) as { content: string }
+                console.log(`[AIPLC SSE] content event: "${parsed.content.slice(0, 80)}"`)
                 updateLastAssistantMessage(parsed.content)
                 break
               }
@@ -232,21 +236,37 @@ export default function ChatPanel() {
         const { done, value } = await reader.read()
         if (done) break
 
-        buffer += decoder.decode(value, { stream: true })
+        const chunk = decoder.decode(value, { stream: true })
+        buffer += chunk
+        console.log(`[AIPLC SSE] chunk received, length=${chunk.length}, buffer length=${buffer.length}`)
 
-        // Process complete SSE blocks (separated by double newline)
-        const lastDoubleNewline = buffer.lastIndexOf('\n\n')
+        // Process complete SSE blocks (separated by double newline).
+        // Support both \n\n and \r\n\r\n as block delimiters.
+        const lastDoubleNewline = Math.max(
+          buffer.lastIndexOf('\n\n'),
+          buffer.lastIndexOf('\r\n\r\n'),
+        )
         if (lastDoubleNewline === -1) continue
 
-        const complete = buffer.slice(0, lastDoubleNewline + 2)
-        buffer = buffer.slice(lastDoubleNewline + 2)
+        // Find the actual end of the delimiter (could be 2 or 4 chars)
+        const delimiterEnd =
+          buffer.indexOf('\r\n\r\n', lastDoubleNewline) === lastDoubleNewline
+            ? lastDoubleNewline + 4
+            : lastDoubleNewline + 2
 
-        processEvents(parseSSE(complete))
+        const complete = buffer.slice(0, delimiterEnd)
+        buffer = buffer.slice(delimiterEnd)
+
+        const events = parseSSE(complete)
+        console.log(`[AIPLC SSE] parsed ${events.length} event(s)`)
+        processEvents(events)
       }
 
       // Process any remaining data left in the buffer after the stream ends
       if (buffer.trim()) {
-        processEvents(parseSSE(buffer))
+        const events = parseSSE(buffer)
+        console.log(`[AIPLC SSE] final buffer: parsed ${events.length} event(s)`)
+        processEvents(events)
       }
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {
