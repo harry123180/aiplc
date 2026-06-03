@@ -230,6 +230,29 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {},
         },
     },
+    # ── Design skill retrieval ────────────────────────────────────────
+    {
+        "name": "retrieve_design_skill",
+        "description": "搜尋並載入相關的電路設計 skill。當使用者要求設計特定迴路時呼叫此工具取得設計範本、元件清單、接線規則和程式碼範例。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "設計需求關鍵字（例如：馬達正反轉、LED按鈕、星三角啟動）",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "list_design_skills",
+        "description": "列出所有可用的電路設計 skill 清單",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -534,6 +557,20 @@ async def _simulation_stop(_args: dict) -> dict:
     return {"success": True, "message": "Simulation stopped"}
 
 
+async def _retrieve_design_skill(args: dict) -> dict:
+    from app.services.skill_retriever import search_skills
+    query = args.get("query", "")
+    results = search_skills(query)
+    if not results:
+        return {"found": False, "message": f"沒有找到與 '{query}' 相關的設計 skill"}
+    return {"found": True, "skills": results}
+
+
+async def _list_design_skills(_args: dict) -> dict:
+    from app.services.skill_retriever import list_skills
+    return {"skills": list_skills()}
+
+
 _HANDLERS = {
     "canvas_add_component": _canvas_add_component,
     "canvas_add_wire": _canvas_add_wire,
@@ -547,4 +584,6 @@ _HANDLERS = {
     "io_mapping_get": _io_mapping_get,
     "compile_and_run": _compile_and_run,
     "simulation_stop": _simulation_stop,
+    "retrieve_design_skill": _retrieve_design_skill,
+    "list_design_skills": _list_design_skills,
 }
