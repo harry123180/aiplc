@@ -1,0 +1,11 @@
+services:
+  aiplc:
+    build: .
+    container_name: aiplc-mvp
+    restart: unless-stopped
+    ports:
+      - '3120:80'
+    environment:
+      - LITELLM_BASE_URL=${LITELLM_BASE_URL:-https://ai.qianpro.shop}
+      - LITELLM_API_KEY=${LITELLM_API_KEY:-}
+      - LITELLM_MODEL=${LITELLM_MODEL:-claude-sonnet-4-20250514}
