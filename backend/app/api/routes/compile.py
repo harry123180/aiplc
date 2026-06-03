@@ -71,6 +71,13 @@ int32_t Counter_Value(int id) { (void)id; return 0; }
 bool Counter_Done(int id, int32_t p) { (void)id; (void)p; return false; }
 void Serial_Print(const char* fmt, ...) { va_list a; va_start(a,fmt); (void)a; va_end(a); }
 void Modbus_Init(uint8_t addr, long baud) { (void)addr; (void)baud; }
+bool Modbus_WriteCoil(uint16_t addr, bool value) { (void)addr; (void)value; return true; }
+bool Modbus_ReadCoil(uint16_t addr) { (void)addr; return false; }
+int16_t Modbus_ReadHoldingRegister(uint16_t addr) { (void)addr; return 0; }
+bool Modbus_WriteHoldingRegister(uint16_t addr, int16_t value) { (void)addr; (void)value; return true; }
+bool Modbus_ReadInputRegister(uint16_t addr, int16_t* value) { (void)addr; if(value) *value = 0; return true; }
+bool Modbus_IsConnected(void) { return false; }
+uint32_t Modbus_GetErrorCount(void) { return 0; }
 
 /* ---- Include user code ---- */
 #include "user_code.c"

@@ -40,6 +40,13 @@ SYSTEM_PROMPT = f"""\
 - Counter_Reset(id) / Counter_Up(id) / Counter_Down(id) / Counter_Value(id) / Counter_Done(id, preset)
 - Serial_Print(fmt, ...): 除錯輸出
 - Modbus_Init(slaveAddr, baud): Modbus 初始化
+- Modbus_WriteCoil(addr, value): 寫入 Modbus 線圈
+- Modbus_ReadCoil(addr): 讀取 Modbus 線圈狀態
+- Modbus_ReadHoldingRegister(addr): 讀取 Modbus 保持暫存器
+- Modbus_WriteHoldingRegister(addr, value): 寫入 Modbus 保持暫存器
+- Modbus_ReadInputRegister(addr, &value): 讀取 Modbus 輸入暫存器
+- Modbus_IsConnected(): 檢查 Modbus 連線狀態
+- Modbus_GetErrorCount(): 取得 Modbus 通訊錯誤計數
 
 使用者程式需實作兩個函式：
 - PLC_Init(): 初始化（開機執行一次）

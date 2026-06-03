@@ -1,87 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { X, Trash2 } from 'lucide-react'
-
-// ---- Property definition types ----
-
-interface PropertyDefBase {
-  key: string
-  label: string
-}
-
-interface TextPropertyDef extends PropertyDefBase {
-  type: 'text'
-  default: string
-}
-
-interface NumberPropertyDef extends PropertyDefBase {
-  type: 'number'
-  default: number
-}
-
-interface SelectPropertyDef extends PropertyDefBase {
-  type: 'select'
-  options: string[]
-  default: string
-}
-
-type PropertyDef = TextPropertyDef | NumberPropertyDef | SelectPropertyDef
-
-// ---- Per-component-type property definitions ----
-
-const COMPONENT_PROPERTIES: Record<string, PropertyDef[]> = {
-  'plc-cpu-f405': [],
-  'button-no': [
-    { key: 'label', label: '標籤', type: 'text', default: '' },
-  ],
-  'button-nc': [
-    { key: 'label', label: '標籤', type: 'text', default: '' },
-  ],
-  'indicator-light': [
-    { key: 'label', label: '標籤', type: 'text', default: '' },
-    { key: 'color', label: '顏色', type: 'select', options: ['red', 'yellow', 'green', 'blue'], default: 'green' },
-  ],
-  'relay': [
-    { key: 'label', label: '標籤', type: 'text', default: '' },
-  ],
-  'contactor-3phase': [
-    { key: 'label', label: '標籤', type: 'text', default: '' },
-  ],
-  'motor-3phase': [
-    { key: 'label', label: '標籤', type: 'text', default: '' },
-    { key: 'power', label: '功率 (HP)', type: 'number', default: 5 },
-  ],
-  'thermal-overload': [
-    { key: 'label', label: '標籤', type: 'text', default: '' },
-    { key: 'current', label: '額定電流 (A)', type: 'number', default: 10 },
-  ],
-  'emergency-stop': [
-    { key: 'label', label: '標籤', type: 'text', default: '' },
-  ],
-  'resistor': [
-    { key: 'value', label: '阻值', type: 'text', default: '1kΩ' },
-  ],
-  'power-24v': [
-    { key: 'voltage', label: '電壓 (V)', type: 'number', default: 24 },
-  ],
-}
-
-// ---- Friendly display names for component types ----
-
-const COMPONENT_TYPE_LABELS: Record<string, string> = {
-  'plc-cpu-f405': 'PLC CPU (STM32F405)',
-  'button-no': 'Button NO',
-  'button-nc': 'Button NC',
-  'indicator-light': 'Indicator Light',
-  'relay': 'Relay',
-  'contactor-3phase': 'Contactor 3相',
-  'motor-3phase': 'Motor 3相',
-  'thermal-overload': 'Thermal Overload',
-  'emergency-stop': 'Emergency Stop',
-  'resistor': 'Resistor',
-  'power-24v': '24V Power',
-  'ground': 'Ground',
-  'junction': 'Junction',
-}
+import { getComponentProperties, getComponentLabel } from './simulator/ComponentCatalog'
+import type { PropertyDef } from './simulator/ComponentCatalog'
 
 // ---- Dialog props ----
 
@@ -108,8 +28,8 @@ export default function ComponentPropertyDialog({
   const dialogRef = useRef<HTMLDivElement>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  const propertyDefs = COMPONENT_PROPERTIES[componentType] || []
-  const typeLabel = COMPONENT_TYPE_LABELS[componentType] || componentType
+  const propertyDefs = getComponentProperties(componentType)
+  const typeLabel = getComponentLabel(componentType)
 
   // Clamp position to viewport
   const clampedPos = useClampedPosition(position, dialogRef)
@@ -319,7 +239,7 @@ function PropertyField({
           onFocus={(e) => { e.currentTarget.style.borderColor = '#4285F4' }}
           onBlur={(e) => { e.currentTarget.style.borderColor = '#E0E0E0' }}
           style={inputStyle}
-          placeholder={def.default || undefined}
+          placeholder={String(def.default) || undefined}
         />
       )}
 
@@ -342,7 +262,7 @@ function PropertyField({
           onBlur={(e) => { e.currentTarget.style.borderColor = '#E0E0E0' }}
           style={{ ...inputStyle, cursor: 'pointer' }}
         >
-          {def.options.map((opt) => (
+          {(def.options ?? []).map((opt) => (
             <option key={opt} value={opt}>
               {opt}
             </option>

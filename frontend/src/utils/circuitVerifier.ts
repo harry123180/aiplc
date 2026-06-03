@@ -343,16 +343,24 @@ export async function runDrc(
   if (hasPower && hasGround && components.length >= 3) {
     try {
       const netlist = buildPlcNetlist(components, wires)
+      console.log('[DRC] ngspice netlist:', netlist)
       await spiceEngine.init()
       const result = await spiceEngine.solve(netlist)
+      console.log('[DRC] ngspice result:', {
+        success: result.success,
+        error: result.error,
+        variableNames: result.variableNames,
+        variables: Object.fromEntries(result.variables),
+      })
 
       if (result.success) {
         // Check power source current (short circuit detection)
         // ngspice reports branch current as the power source name + #branch
         // In our netlist the power source is named V_<sanitized_id>
+        // ngspice lowercases all vector names, so we must lowercase the key
         const powerComp = components.find((c) => c.type === 'power-24v')
         if (powerComp) {
-          const sid = powerComp.id.replace(/[^a-zA-Z0-9_]/g, '_')
+          const sid = powerComp.id.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()
           const currentKey = `v_${sid}#branch`
           const powerCurrent = Math.abs(result.variables.get(currentKey) ?? 0)
 
@@ -369,7 +377,8 @@ export async function runDrc(
         // Check LED currents via sense sources
         for (const comp of components) {
           if (comp.type === 'indicator-light') {
-            const sid = comp.id.replace(/[^a-zA-Z0-9_]/g, '_')
+            // ngspice lowercases all vector names, so we must lowercase the key
+            const sid = comp.id.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()
             const senseKey = `v_${sid}_sense#branch`
             const current = Math.abs(result.variables.get(senseKey) ?? 0)
 
@@ -387,7 +396,7 @@ export async function runDrc(
         // Check resistor power dissipation
         for (const comp of components) {
           if (comp.type === 'resistor') {
-            const sid = comp.id.replace(/[^a-zA-Z0-9_]/g, '_')
+            const sid = comp.id.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()
             // Get node voltages from the two resistor terminals
             const net1Key = findNetVoltage(result.variables, sid, '1')
             const net2Key = findNetVoltage(result.variables, sid, '2')

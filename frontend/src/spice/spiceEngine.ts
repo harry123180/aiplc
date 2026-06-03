@@ -28,7 +28,40 @@ class SpiceEngine {
     if (this.ready) return
     if (this.initPromise) return this.initPromise
 
+    const INIT_TIMEOUT_MS = 15_000 // 15 seconds max for WASM init
+
     this.initPromise = new Promise<void>((resolve, reject) => {
+      let settled = false
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+      // Declared as function (hoisted) so it can be called from anywhere
+      // within this scope, including the catch block before onMessage/onError
+      function doCleanup(w: Worker | null) {
+        settled = true
+        if (timeoutId !== undefined) clearTimeout(timeoutId)
+        w?.removeEventListener('message', onMessage)
+        w?.removeEventListener('error', onError)
+      }
+
+      const onMessage = (ev: MessageEvent) => {
+        if (settled) return
+        const data = ev.data
+        if (data.type === 'ready') {
+          this.ready = true
+          doCleanup(this.worker)
+          resolve()
+        } else if (data.type === 'error') {
+          doCleanup(this.worker)
+          reject(new Error(data.message || 'Worker init failed'))
+        }
+      }
+
+      const onError = (ev: ErrorEvent) => {
+        if (settled) return
+        doCleanup(this.worker)
+        reject(new Error(ev.message || 'Worker load error'))
+      }
+
       try {
         // Worker loaded from source via Vite's ?url import — works in
         // both dev and production builds.
@@ -37,32 +70,29 @@ class SpiceEngine {
           { type: 'classic' },
         )
 
-        const onMessage = (ev: MessageEvent) => {
-          const data = ev.data
-          if (data.type === 'ready') {
-            this.ready = true
-            this.worker!.removeEventListener('message', onMessage)
-            this.worker!.removeEventListener('error', onError)
-            resolve()
-          } else if (data.type === 'error') {
-            this.worker!.removeEventListener('message', onMessage)
-            this.worker!.removeEventListener('error', onError)
-            reject(new Error(data.message || 'Worker init failed'))
-          }
-        }
-
-        const onError = (ev: ErrorEvent) => {
-          this.worker!.removeEventListener('message', onMessage)
-          this.worker!.removeEventListener('error', onError)
-          reject(new Error(ev.message || 'Worker load error'))
-        }
+        timeoutId = setTimeout(() => {
+          if (settled) return
+          doCleanup(this.worker)
+          this.initPromise = null // allow retry on next call
+          reject(
+            new Error(
+              `ngspice WASM init timed out after ${INIT_TIMEOUT_MS / 1000}s`,
+            ),
+          )
+        }, INIT_TIMEOUT_MS)
 
         this.worker.addEventListener('message', onMessage)
         this.worker.addEventListener('error', onError)
         this.worker.postMessage({ type: 'init' })
       } catch (err) {
+        doCleanup(this.worker)
         reject(err)
       }
+    })
+
+    // If init fails, clear the cached promise so subsequent calls can retry
+    this.initPromise.catch(() => {
+      this.initPromise = null
     })
 
     return this.initPromise
@@ -84,11 +114,23 @@ class SpiceEngine {
       }
     }
 
+    const SOLVE_TIMEOUT_MS = 10_000 // 10 seconds max for .op analysis
+
     return new Promise<SpiceResult>((resolve) => {
+      let settled = false
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+      const cleanup = () => {
+        settled = true
+        if (timeoutId !== undefined) clearTimeout(timeoutId)
+        this.worker?.removeEventListener('message', onMessage)
+      }
+
       const onMessage = (ev: MessageEvent) => {
+        if (settled) return
         const data = ev.data
         if (data.type === 'result') {
-          this.worker!.removeEventListener('message', onMessage)
+          cleanup()
           // Convert plain object vectors to Map<string, number>
           // For .op, each vector has exactly one value
           const variables = new Map<string, number>()
@@ -104,7 +146,7 @@ class SpiceEngine {
             success: true,
           })
         } else if (data.type === 'error') {
-          this.worker!.removeEventListener('message', onMessage)
+          cleanup()
           resolve({
             variables: new Map(),
             variableNames: [],
@@ -113,6 +155,17 @@ class SpiceEngine {
           })
         }
       }
+
+      timeoutId = setTimeout(() => {
+        if (settled) return
+        cleanup()
+        resolve({
+          variables: new Map(),
+          variableNames: [],
+          success: false,
+          error: `ngspice solve timed out after ${SOLVE_TIMEOUT_MS / 1000}s`,
+        })
+      }, SOLVE_TIMEOUT_MS)
 
       this.worker!.addEventListener('message', onMessage)
       this.worker!.postMessage({ type: 'run', netlist })

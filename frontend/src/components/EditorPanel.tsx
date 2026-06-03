@@ -127,6 +127,48 @@ const handleEditorDidMount: OnMount = (editor, monaco) => {
       documentation: '初始化 Modbus 通訊',
       insertText: 'Modbus_Init(${1:slaveAddr}, ${2:baud})',
     },
+    {
+      label: 'Modbus_WriteCoil',
+      detail: 'bool Modbus_WriteCoil(uint16_t addr, bool value)',
+      documentation: '寫入 Modbus 線圈',
+      insertText: 'Modbus_WriteCoil(${1:addr}, ${2:value})',
+    },
+    {
+      label: 'Modbus_ReadCoil',
+      detail: 'bool Modbus_ReadCoil(uint16_t addr)',
+      documentation: '讀取 Modbus 線圈狀態',
+      insertText: 'Modbus_ReadCoil(${1:addr})',
+    },
+    {
+      label: 'Modbus_ReadHoldingRegister',
+      detail: 'int16_t Modbus_ReadHoldingRegister(uint16_t addr)',
+      documentation: '讀取 Modbus 保持暫存器',
+      insertText: 'Modbus_ReadHoldingRegister(${1:addr})',
+    },
+    {
+      label: 'Modbus_WriteHoldingRegister',
+      detail: 'bool Modbus_WriteHoldingRegister(uint16_t addr, int16_t value)',
+      documentation: '寫入 Modbus 保持暫存器',
+      insertText: 'Modbus_WriteHoldingRegister(${1:addr}, ${2:value})',
+    },
+    {
+      label: 'Modbus_ReadInputRegister',
+      detail: 'bool Modbus_ReadInputRegister(uint16_t addr, int16_t* value)',
+      documentation: '讀取 Modbus 輸入暫存器',
+      insertText: 'Modbus_ReadInputRegister(${1:addr}, ${2:&value})',
+    },
+    {
+      label: 'Modbus_IsConnected',
+      detail: 'bool Modbus_IsConnected(void)',
+      documentation: '檢查 Modbus 連線狀態',
+      insertText: 'Modbus_IsConnected()',
+    },
+    {
+      label: 'Modbus_GetErrorCount',
+      detail: 'uint32_t Modbus_GetErrorCount(void)',
+      documentation: '取得 Modbus 通訊錯誤計數',
+      insertText: 'Modbus_GetErrorCount()',
+    },
     // User-implemented callbacks
     {
       label: 'PLC_Init',

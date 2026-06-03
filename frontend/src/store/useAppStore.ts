@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { CODE_TEMPLATES } from '../data/codeTemplates'
 
 export interface CanvasCommand {
   description: string
@@ -196,28 +197,7 @@ interface AppState {
 
 let messageIdCounter = 0
 
-const DEFAULT_CODE = `#include "aiplc.h"
-
-// PLC 初始化（開機執行一次）
-void PLC_Init() {
-    Serial_Print("AIPLC Ready\\n");
-}
-
-// PLC 掃描週期（每 ~10ms 執行一次）
-void PLC_Scan() {
-    // 讀取輸入
-    bool start = DI_Read(0);
-    bool stop  = DI_Read(1);
-
-    // 控制邏輯
-    static bool running = false;
-    if (stop)  running = false;
-    if (start) running = true;
-
-    // 寫入輸出
-    DO_Write(0, running);  // 接觸器
-    DO_Write(1, running);  // 運轉指示燈
-}`
+const DEFAULT_CODE = CODE_TEMPLATES[0].code
 
 const useAppStore = create<AppState>((set) => ({
   // View mode

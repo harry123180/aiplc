@@ -105,12 +105,27 @@ export function buildPlcNetlist(
   components: CanvasComponent[],
   wires: CanvasWire[],
 ): string {
+  // Handle empty circuit gracefully
+  if (components.length === 0) {
+    return '* AIPLC Auto-Generated Netlist (empty)\n.end'
+  }
+
   const uf = new UnionFind()
 
   // Build a component map for quick lookups
   const compMap = new Map<string, CanvasComponent>()
   for (const c of components) {
     compMap.set(c.id, c)
+  }
+
+  // Build a set of connected pins (pins that appear in at least one wire)
+  const connectedPins = new Set<string>()
+  for (const w of wires) {
+    // Only count wires that reference components that actually exist
+    if (compMap.has(w.fromComponent) && compMap.has(w.toComponent)) {
+      connectedPins.add(pinId(w.fromComponent, w.fromPin))
+      connectedPins.add(pinId(w.toComponent, w.toPin))
+    }
   }
 
   // Step 1: Register all component pins as nodes in Union-Find
@@ -123,6 +138,7 @@ export function buildPlcNetlist(
 
   // Step 2: Merge connected pins via wires
   for (const w of wires) {
+    if (!compMap.has(w.fromComponent) || !compMap.has(w.toComponent)) continue
     const fromPinId = pinId(w.fromComponent, w.fromPin)
     const toPinId = pinId(w.toComponent, w.toPin)
     uf.union(fromPinId, toPinId)
@@ -169,12 +185,28 @@ export function buildPlcNetlist(
     return name
   }
 
+  /** Check if a component pin has at least one wire connected to it. */
+  function isPinConnected(componentId: string, pinName: string): boolean {
+    return connectedPins.has(pinId(componentId, pinName))
+  }
+
   // Step 4: Emit SPICE cards
   const lines: string[] = ['* AIPLC Auto-Generated Netlist']
   const senseSourceIds: string[] = [] // track sense sources for current measurement
+  let plcCount = 0 // track multiple PLC CPUs
 
   for (const c of components) {
     const sid = sanitizeId(c.id)
+
+    // Skip orphan components (no wires at all) — they create floating nets
+    // that cause ngspice convergence failures. Ground and power-24v are
+    // structural and handled by topology checks, so skip them too if orphaned.
+    const pins = getComponentPins(c)
+    const hasAnyConnection = pins.some((pin) => isPinConnected(c.id, pin))
+    if (!hasAnyConnection && c.type !== 'ground' && c.type !== 'power-24v') {
+      lines.push(`* Skipped orphan component: ${c.type} (${c.id})`)
+      continue
+    }
 
     switch (c.type) {
       case 'power-24v': {
@@ -313,28 +345,37 @@ export function buildPlcNetlist(
       }
 
       case 'plc-cpu-f405': {
-        // DI pins: high impedance input to ground
+        plcCount++
+        if (plcCount > 1) {
+          // Multiple PLC CPUs: skip additional ones to avoid conflicting sources
+          lines.push(`* Skipped additional PLC CPU: ${c.id}`)
+          break
+        }
+        // DI pins: high impedance input to ground (only if connected)
         for (let i = 0; i < 8; i++) {
           const pinName = `DI${i}`
+          if (!isPinConnected(c.id, pinName)) continue
           const net = getNet(c.id, pinName)
-          // Only emit if the pin is actually connected (net is not isolated)
-          if (net !== `n${netCounter}`) {
-            lines.push(`R_${sid}_${pinName} ${net} 0 10MEG`)
-          }
+          lines.push(`R_${sid}_${pinName} ${net} 0 10MEG`)
         }
         // DO pins: model as 24V source when HIGH (worst-case for DRC)
+        // Only emit for pins that are actually wired to something
         for (let i = 0; i < 8; i++) {
           const pinName = `DO${i}`
+          if (!isPinConnected(c.id, pinName)) continue
           const net = getNet(c.id, pinName)
-          // Only emit if the pin is connected somewhere
           lines.push(`V_${sid}_${pinName} ${net} 0 DC 24`)
         }
-        // VCC and GND pins
-        const vccNet = getNet(c.id, 'VCC')
-        lines.push(`R_${sid}_vcc ${vccNet} 0 10MEG`)
-        const gndNet = getNet(c.id, 'GND')
-        if (gndNet !== '0') {
-          lines.push(`R_${sid}_gnd ${gndNet} 0 0.01`)
+        // VCC and GND pins (only if connected)
+        if (isPinConnected(c.id, 'VCC')) {
+          const vccNet = getNet(c.id, 'VCC')
+          lines.push(`R_${sid}_vcc ${vccNet} 0 10MEG`)
+        }
+        if (isPinConnected(c.id, 'GND')) {
+          const gndNet = getNet(c.id, 'GND')
+          if (gndNet !== '0') {
+            lines.push(`R_${sid}_gnd ${gndNet} 0 0.01`)
+          }
         }
         break
       }

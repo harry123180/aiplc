@@ -32,8 +32,15 @@ bool Counter_Done(int id, int32_t preset);
 // Serial Communication
 void Serial_Print(const char* fmt, ...);
 
-// Modbus (placeholder)
+// ── Modbus RTU 通訊 ─────────────────────
 void Modbus_Init(uint8_t slaveAddr, long baud);
+bool Modbus_WriteCoil(uint16_t addr, bool value);
+bool Modbus_ReadCoil(uint16_t addr);
+int16_t Modbus_ReadHoldingRegister(uint16_t addr);
+bool Modbus_WriteHoldingRegister(uint16_t addr, int16_t value);
+bool Modbus_ReadInputRegister(uint16_t addr, int16_t* value);
+bool Modbus_IsConnected(void);
+uint32_t Modbus_GetErrorCount(void);
 
 // User-implemented functions
 void PLC_Init(void);

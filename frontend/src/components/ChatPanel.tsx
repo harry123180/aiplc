@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import {
   Send,
   Loader2,
@@ -13,7 +13,7 @@ import {
   Lightbulb,
 } from 'lucide-react'
 import useAppStore from '../store/useAppStore'
-import type { ChatMessage } from '../store/useAppStore'
+import type { ChatMessage, CanvasComponent } from '../store/useAppStore'
 
 /* ─── Props accepted from ChatDock ──────────────────────── */
 interface ChatPanelProps {
@@ -86,8 +86,26 @@ function applyToolResult(toolName: string, result: Record<string, unknown>) {
   }
 }
 
-/* ─── Suggestion chips ──────────────────────────────────── */
-const SUGGESTIONS = ['放置元件', '生成程式碼', '檢查電路', '解釋邏輯']
+/* ─── Context-aware suggestion chips ───────────────────── */
+function getSuggestions(components: CanvasComponent[], code: string, messages: ChatMessage[]): string[] {
+  // No conversation yet → starter suggestions
+  if (messages.length === 0) {
+    return ['設計馬達控制迴路', '幫我放置元件', '解釋 PLC 掃描週期', '生成範例程式']
+  }
+
+  // Has components but no code → suggest code generation
+  if (components.length > 0 && code.includes('// 在這裡寫控制邏輯')) {
+    return ['根據線路圖生成程式碼', '檢查接線', '解釋元件功能']
+  }
+
+  // Has code and components → suggest verification
+  if (components.length > 0 && !code.includes('// 在這裡寫控制邏輯')) {
+    return ['檢查電路', '優化程式碼', '新增功能', '解釋控制邏輯']
+  }
+
+  // Default
+  return ['放置元件', '生成程式碼', '檢查電路', '解釋邏輯']
+}
 
 /* ─── Message bubble ────────────────────────────────────── */
 function MessageBubble({ message, maxWidth }: { message: ChatMessage; maxWidth?: string }) {
@@ -421,6 +439,11 @@ export default function ChatPanel({
     }
   }
 
+  const suggestions = useMemo(
+    () => getSuggestions(components, code, messages),
+    [components.length, code, messages.length]
+  )
+
   const sendDisabled = isStreaming || !input.trim()
 
   return (
@@ -631,7 +654,7 @@ export default function ChatPanel({
       >
         {/* Suggestion chips */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 9, flexWrap: 'wrap' }}>
-          {SUGGESTIONS.map((s) => (
+          {suggestions.map((s) => (
             <button
               key={s}
               className="qp-chip"
