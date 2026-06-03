@@ -121,9 +121,7 @@ async def agent_chat(req: ChatRequest, request: Request):
     async def event_generator():
         """SSE generator that handles streaming + tool calls."""
         current_messages = list(messages)
-        max_tool_rounds = 5  # prevent infinite loops
-
-        for _round in range(max_tool_rounds):
+        while True:
             # Accumulate the assistant response
             full_content = ""
             tool_calls_acc: dict[int, dict[str, Any]] = {}
@@ -238,7 +236,5 @@ async def agent_chat(req: ChatRequest, request: Request):
             # Loop continues — the LLM will see tool results and may
             # generate more text or more tool calls.
 
-        # If we exhausted rounds, signal done
-        yield {"event": "done", "data": "{}"}
 
     return EventSourceResponse(event_generator())
