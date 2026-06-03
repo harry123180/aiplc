@@ -310,49 +310,130 @@ function findWaypointInsertIndex(worldX: number, worldY: number, start: { x: num
   return bestIdx
 }
 
-// ---- Wire renderer ----
+// ---- Wire segments helper ----
 
-function WirePath({ wire, components, isHighlighted, isSelected, onSelect, onDoubleClick, onWaypointDragStart, onWaypointContextMenu }: {
-  wire: CanvasWire; components: CanvasComponent[]; isHighlighted: boolean; isSelected: boolean
-  onSelect: (wireId: string) => void; onDoubleClick: (wireId: string, worldX: number, worldY: number) => void
-  onWaypointDragStart: (wireId: string, waypointIndex: number, e: React.MouseEvent) => void
-  onWaypointContextMenu: (wireId: string, waypointIndex: number, e: React.MouseEvent) => void
-}) {
-  const [isHovered, setIsHovered] = useState(false)
-  const [hoveredWpIndex, setHoveredWpIndex] = useState<number | null>(null)
+interface WireSegment {
+  startX: number; startY: number; endX: number; endY: number
+}
+
+function getWireSegments(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  waypoints?: Array<{ x: number; y: number }>
+): WireSegment[] {
+  const points = [start, ...(waypoints || []), end]
+  const segments: WireSegment[] = []
+  for (let i = 0; i < points.length - 1; i++) {
+    const prev = points[i]
+    const curr = points[i + 1]
+    if (prev.x !== curr.x && prev.y !== curr.y) {
+      // L-shaped: horizontal then vertical
+      const mid = { x: curr.x, y: prev.y }
+      segments.push({ startX: prev.x, startY: prev.y, endX: mid.x, endY: mid.y })
+      segments.push({ startX: mid.x, startY: mid.y, endX: curr.x, endY: curr.y })
+    } else {
+      segments.push({ startX: prev.x, startY: prev.y, endX: curr.x, endY: curr.y })
+    }
+  }
+  return segments
+}
+
+// ---- Wire renderer (split into layers) ----
+
+function getWirePathData(wire: CanvasWire, components: CanvasComponent[]): { d: string; fromPos: { x: number; y: number }; toPos: { x: number; y: number } } | null {
   const fromComp = components.find((c) => c.id === wire.fromComponent)
   const toComp = components.find((c) => c.id === wire.toComponent)
   if (!fromComp || !toComp) return null
   const fromPos = getPinWorldPos(fromComp, wire.fromPin)
   const toPos = getPinWorldPos(toComp, wire.toPin)
   if (!fromPos || !toPos) return null
-  const wireColor = wire.color || '#1565C0'
   const d = generateWirePath(fromPos, toPos, wire.waypoints)
+  return { d, fromPos, toPos }
+}
+
+/** Visible wire path layer — rendered below components, pointerEvents="none" */
+function WireVisiblePath({ wire, components, isHighlighted, isSelected, isHovered }: {
+  wire: CanvasWire; components: CanvasComponent[]; isHighlighted: boolean; isSelected: boolean; isHovered: boolean
+}) {
+  const data = getWirePathData(wire, components)
+  if (!data) return null
+  const wireColor = wire.color || '#1565C0'
   const strokeColor = isSelected ? 'var(--color-blue, #4285F4)' : isHighlighted ? 'var(--color-red)' : isHovered ? '#1976D2' : wireColor
   const strokeWidth = isSelected ? 3 : isHovered ? 2.5 : isHighlighted ? 2.5 : 1.5
   return (
+    <path d={data.d} fill="none" stroke={strokeColor} strokeWidth={strokeWidth}
+      strokeDasharray={isSelected ? '8 4' : 'none'} strokeLinecap="round" strokeLinejoin="round"
+      style={isHighlighted ? { animation: 'drc-pulse 1.5s ease-in-out infinite' } : undefined} pointerEvents="none"
+    />
+  )
+}
+
+/** Wire hit-area layer — rendered above components for click-to-select */
+function WireHitArea({ wire, components, isSelected, onSelect, onDoubleClick, onHoverChange }: {
+  wire: CanvasWire; components: CanvasComponent[]; isSelected: boolean
+  onSelect: (wireId: string) => void; onDoubleClick: (wireId: string, worldX: number, worldY: number) => void
+  onHoverChange: (wireId: string, hovered: boolean) => void
+}) {
+  const data = getWirePathData(wire, components)
+  if (!data) return null
+  return (
+    <path d={data.d} stroke="transparent" strokeWidth={isSelected ? 12 : 6} fill="none"
+      style={{ cursor: 'pointer' }}
+      pointerEvents="stroke"
+      onClick={(e) => { e.stopPropagation(); onSelect(wire.id) }}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        const svg = (e.target as SVGElement).ownerSVGElement
+        if (!svg) return
+        const rect = svg.getBoundingClientRect()
+        onDoubleClick(wire.id, e.clientX - rect.left, e.clientY - rect.top)
+      }}
+      onMouseEnter={() => onHoverChange(wire.id, true)}
+      onMouseLeave={() => onHoverChange(wire.id, false)}
+    />
+  )
+}
+
+/** Waypoint + segment handles — rendered topmost when wire is selected */
+function WireHandles({ wire, components, onWaypointDragStart, onWaypointContextMenu, onSegmentDragStart }: {
+  wire: CanvasWire; components: CanvasComponent[]
+  onWaypointDragStart: (wireId: string, waypointIndex: number, e: React.MouseEvent) => void
+  onWaypointContextMenu: (wireId: string, waypointIndex: number, e: React.MouseEvent) => void
+  onSegmentDragStart: (wireId: string, segmentIndex: number, axis: 'x' | 'y', e: React.MouseEvent) => void
+}) {
+  const [hoveredWpIndex, setHoveredWpIndex] = useState<number | null>(null)
+  const data = getWirePathData(wire, components)
+  if (!data) return null
+  const segments = getWireSegments(data.fromPos, data.toPos, wire.waypoints)
+  return (
     <g>
-      <path d={d} stroke="transparent" strokeWidth={12} fill="none" style={{ cursor: 'pointer' }}
-        onClick={(e) => { e.stopPropagation(); onSelect(wire.id) }}
-        onDoubleClick={(e) => {
-          e.stopPropagation()
-          const svg = (e.target as SVGElement).ownerSVGElement
-          if (!svg) return
-          const rect = svg.getBoundingClientRect()
-          const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
-          onDoubleClick(wire.id, e.clientX - rect.left, e.clientY - rect.top)
-        }}
-        onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}
-      />
-      <path d={d} fill="none" stroke={strokeColor} strokeWidth={strokeWidth}
-        strokeDasharray={isSelected ? '8 4' : 'none'} strokeLinecap="round" strokeLinejoin="round"
-        style={isHighlighted ? { animation: 'drc-pulse 1.5s ease-in-out infinite' } : undefined} pointerEvents="none"
-      />
-      {isSelected && wire.waypoints && wire.waypoints.map((wp, idx) => {
+      {/* Segment midpoint handles for dragging */}
+      {segments.map((seg, idx) => {
+        const midX = (seg.startX + seg.endX) / 2
+        const midY = (seg.startY + seg.endY) / 2
+        // Skip very short segments (< 10px)
+        const segLen = Math.hypot(seg.endX - seg.startX, seg.endY - seg.startY)
+        if (segLen < 10) return null
+        const isHorizontal = Math.abs(seg.startY - seg.endY) < 1
+        return (
+          <circle
+            key={`seg-${idx}`}
+            cx={midX} cy={midY} r={4}
+            fill="white" stroke="var(--color-blue, #4285F4)" strokeWidth={1.5}
+            style={{ cursor: isHorizontal ? 'ns-resize' : 'ew-resize' }}
+            onMouseDown={(e) => {
+              e.stopPropagation()
+              onSegmentDragStart(wire.id, idx, isHorizontal ? 'y' : 'x', e)
+            }}
+          />
+        )
+      })}
+      {/* Existing waypoint handles */}
+      {wire.waypoints && wire.waypoints.map((wp, idx) => {
         const isWpHovered = hoveredWpIndex === idx
         return (
-          <circle key={`wp-${idx}`} cx={wp.x} cy={wp.y} r={isWpHovered ? 4 : 3}
-            fill="white" stroke="#4285F4" strokeWidth={1.5}
+          <circle key={`wp-${idx}`} cx={wp.x} cy={wp.y} r={isWpHovered ? 5 : 4}
+            fill="white" stroke="#4285F4" strokeWidth={2}
             style={{ cursor: 'move', transition: 'r 0.1s' }}
             onMouseDown={(e) => { e.stopPropagation(); onWaypointDragStart(wire.id, idx, e) }}
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onWaypointContextMenu(wire.id, idx, e) }}
@@ -453,6 +534,13 @@ export default function CanvasPanel() {
 
   const [svgSize, setSvgSize] = useState({ w: 1600, h: 900 })
   const [draggingWaypoint, setDraggingWaypoint] = useState<{ wireId: string; waypointIndex: number } | null>(null)
+  const [draggingSegment, setDraggingSegment] = useState<{
+    wireId: string
+    segmentIndex: number
+    axis: 'x' | 'y'
+    waypointIndices: [number, number]
+  } | null>(null)
+  const [hoveredWireId, setHoveredWireId] = useState<string | null>(null)
   const [editingComponent, setEditingComponent] = useState<{id: string, screenX: number, screenY: number} | null>(null)
 
   useEffect(() => {
@@ -577,6 +665,26 @@ export default function CanvasPanel() {
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (isPanningRef.current) return
+    if (draggingSegment) {
+      const world = toWorldCoords(e)
+      const snapped = { x: Math.round(world.x / 5) * 5, y: Math.round(world.y / 5) * 5 }
+      const wire = wires.find(w => w.id === draggingSegment.wireId)
+      if (wire && wire.waypoints) {
+        const [i0, i1] = draggingSegment.waypointIndices
+        const wp0 = wire.waypoints[i0]
+        const wp1 = wire.waypoints[i1]
+        if (wp0 && wp1) {
+          if (draggingSegment.axis === 'y') {
+            updateWireWaypoint(draggingSegment.wireId, i0, { x: wp0.x, y: snapped.y })
+            updateWireWaypoint(draggingSegment.wireId, i1, { x: wp1.x, y: snapped.y })
+          } else {
+            updateWireWaypoint(draggingSegment.wireId, i0, { x: snapped.x, y: wp0.y })
+            updateWireWaypoint(draggingSegment.wireId, i1, { x: snapped.x, y: wp1.y })
+          }
+        }
+      }
+      return
+    }
     if (draggingWaypoint) {
       const world = toWorldCoords(e)
       updateWireWaypoint(draggingWaypoint.wireId, draggingWaypoint.waypointIndex, { x: Math.round(world.x / 5) * 5, y: Math.round(world.y / 5) * 5 })
@@ -587,9 +695,10 @@ export default function CanvasPanel() {
       updateComponentPosition(dragging.id, Math.round((world.x - dragging.offsetX) / 5) * 5, Math.round((world.y - dragging.offsetY) / 5) * 5)
     }
     if (wiringFrom) { setWiringMouse(toWorldCoords(e)) }
-  }, [dragging, draggingWaypoint, wiringFrom, toWorldCoords, updateComponentPosition, updateWireWaypoint])
+  }, [dragging, draggingSegment, draggingWaypoint, wiringFrom, wires, toWorldCoords, updateComponentPosition, updateWireWaypoint])
 
   const handleMouseUp = useCallback(() => {
+    if (draggingSegment) { setDraggingSegment(null); return }
     if (draggingWaypoint) { setDraggingWaypoint(null); return }
     if (dragging && dragStartPos.current && dragStartPos.current.id === dragging.id) {
       const comp = components.find((c) => c.id === dragging.id)
@@ -600,7 +709,7 @@ export default function CanvasPanel() {
       dragStartPos.current = null
     }
     setDragging(null)
-  }, [dragging, draggingWaypoint, components, recordMoveComponent])
+  }, [dragging, draggingSegment, draggingWaypoint, components, recordMoveComponent])
 
   const handleSvgClick = useCallback(() => {
     if (isPanningRef.current) return
@@ -636,6 +745,64 @@ export default function CanvasPanel() {
   const handleWaypointContextMenu = useCallback((wireId: string, waypointIndex: number, _e: React.MouseEvent) => {
     removeWireWaypoint(wireId, waypointIndex)
   }, [removeWireWaypoint])
+
+  const handleWireHoverChange = useCallback((wireId: string, hovered: boolean) => {
+    setHoveredWireId(hovered ? wireId : null)
+  }, [])
+
+  const handleSegmentDragStart = useCallback((wireId: string, segmentIndex: number, axis: 'x' | 'y', _e: React.MouseEvent) => {
+    const wire = wires.find(w => w.id === wireId)
+    if (!wire) return
+    const fromComp = components.find(c => c.id === wire.fromComponent)
+    const toComp = components.find(c => c.id === wire.toComponent)
+    if (!fromComp || !toComp) return
+    const fromPos = getPinWorldPos(fromComp, wire.fromPin)
+    const toPos = getPinWorldPos(toComp, wire.toPin)
+    if (!fromPos || !toPos) return
+    const segments = getWireSegments(fromPos, toPos, wire.waypoints)
+    const seg = segments[segmentIndex]
+    if (!seg) return
+    const midX = (seg.startX + seg.endX) / 2
+    const midY = (seg.startY + seg.endY) / 2
+    // Figure out which logical point index corresponds to the segment start.
+    // Segments are generated from the expanded points list (start, waypoints..., end).
+    // We need to find the insertion index in the waypoints array.
+    // Count through logical points to find which gap this segment falls in.
+    const logicalPoints = [fromPos, ...(wire.waypoints || []), toPos]
+    let segCounter = 0
+    let insertAfterLogical = 0
+    for (let i = 0; i < logicalPoints.length - 1; i++) {
+      const a = logicalPoints[i]
+      const b = logicalPoints[i + 1]
+      if (a.x !== b.x && a.y !== b.y) {
+        // This logical gap produces 2 segments
+        if (segCounter === segmentIndex || segCounter + 1 === segmentIndex) {
+          insertAfterLogical = i
+          break
+        }
+        segCounter += 2
+      } else {
+        if (segCounter === segmentIndex) {
+          insertAfterLogical = i
+          break
+        }
+        segCounter += 1
+      }
+    }
+    // Insert two waypoints at the segment midpoint (they'll be dragged apart)
+    // The waypoint index in the waypoints array = insertAfterLogical (since index 0 is fromPos)
+    const wpInsertIdx = insertAfterLogical // maps to position in waypoints array
+    const wp1 = { x: midX, y: midY }
+    const wp2 = { x: midX, y: midY }
+    addWireWaypoint(wireId, wpInsertIdx, wp1)
+    addWireWaypoint(wireId, wpInsertIdx + 1, wp2)
+    setDraggingSegment({
+      wireId,
+      segmentIndex,
+      axis,
+      waypointIndices: [wpInsertIdx, wpInsertIdx + 1],
+    })
+  }, [wires, components, addWireWaypoint])
 
   const handlePinClick = useCallback((componentId: string, pinName: string) => {
     if (isPanningRef.current) return
@@ -691,6 +858,7 @@ export default function CanvasPanel() {
   const getCursor = () => {
     if (isPanning) return 'grabbing'
     if (spaceHeldRef.current) return 'grab'
+    if (draggingSegment) return draggingSegment.axis === 'y' ? 'ns-resize' : 'ew-resize'
     if (draggingWaypoint) return 'move'
     if (wiringFrom) return 'crosshair'
     if (dragging) return 'grabbing'
@@ -764,82 +932,107 @@ export default function CanvasPanel() {
           )}
 
           <g ref={transformGroupRef} transform={`scale(${zoom}) translate(${panX}, ${panY})`}>
+            {/* Layer 1: Grid (bottom) */}
             <rect width={10000} height={10000} x={-5000} y={-5000} fill="url(#dot-grid)" />
 
-          {wires.map((w) => (
-            <WirePath key={w.id} wire={w} components={components}
-              isHighlighted={highlightedWireIds.includes(w.id)} isSelected={selectedWireId === w.id}
-              onSelect={handleWireSelect} onDoubleClick={handleWireDoubleClick}
-              onWaypointDragStart={handleWaypointDragStart} onWaypointContextMenu={handleWaypointContextMenu}
-            />
-          ))}
+            {/* Layer 2: Wire visible paths (pointerEvents="none") */}
+            {wires.map((w) => (
+              <WireVisiblePath key={`wv-${w.id}`} wire={w} components={components}
+                isHighlighted={highlightedWireIds.includes(w.id)} isSelected={selectedWireId === w.id}
+                isHovered={hoveredWireId === w.id}
+              />
+            ))}
 
-          {wiringFrom && wiringMouse && <WirePreview from={wiringFrom} to={wiringMouse} />}
+            {/* Layer 3: Components — users can click/drag/double-click */}
+            {components.map((comp) => {
+              const isSelected = selectedId === comp.id
+              const isHovered = hoveredComponentId === comp.id
+              const def = getComponentDef(comp.type)
+              const showPins = isHovered || isSelected || !!wiringFrom
+              return (
+                <g key={comp.id} transform={`translate(${comp.x}, ${comp.y})`}
+                  onMouseDown={(e) => handleMouseDown(e, comp.id)}
+                  onMouseEnter={() => setHoveredComponentId(comp.id)}
+                  onMouseLeave={() => setHoveredComponentId(null)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation()
+                    setEditingComponent({ id: comp.id, screenX: e.clientX, screenY: e.clientY })
+                  }}
+                  onContextMenu={(e) => {
+                    if (wiringFrom) return
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setEditingComponent({ id: comp.id, screenX: e.clientX, screenY: e.clientY })
+                  }}
+                  style={{ cursor: dragging?.id === comp.id ? 'grabbing' : 'grab' }}
+                >
+                  {isSelected && <rect x={-4} y={-4} width={def.width + 8} height={def.height + 8} rx={6} fill="none" stroke="#4285F4" strokeWidth={2} strokeDasharray="4 2" />}
+                  {highlightedComponentIds.includes(comp.id) && <rect x={-4} y={-4} width={def.width + 8} height={def.height + 8} fill="none" stroke="var(--color-red)" strokeWidth={2} strokeDasharray="6 3" rx={4} style={{ animation: 'drc-pulse 1.5s ease-in-out infinite' }} />}
+                  {renderComponent(comp)}
+                  {typeof comp.properties?.label === 'string' && comp.properties.label !== '' && (
+                    <text
+                      x={def.width / 2}
+                      y={def.height + 16}
+                      textAnchor="middle"
+                      fontSize={11}
+                      fill="var(--color-text-secondary)"
+                    >
+                      {comp.properties.label}
+                    </text>
+                  )}
+                  {showPins && def.pins.map((pin) => {
+                    const local = getPinLocalPos(pin, def)
+                    const isSource = wiringFrom?.componentId === comp.id && wiringFrom?.pin === pin.name
+                    const isPinHovered = hoveredPin?.componentId === comp.id && hoveredPin?.pin === pin.name
+                    const isWiringTarget = !!wiringFrom && wiringFrom.componentId !== comp.id && isPinHovered
+                    const radius = isSource || isPinHovered ? 10 : 8
+                    const fillColor = isSource ? '#0097A7' : isWiringTarget ? '#66BB6A' : isPinHovered ? '#26C6DA' : '#00BCD4'
+                    const labelInfo = getPinLabelOffset(pin.side)
+                    return (
+                      <g key={`pin-overlay-${pin.name}`}>
+                        <circle data-pin="true" cx={local.x} cy={local.y} r={radius} fill={fillColor} fillOpacity={0.85} stroke="white" strokeWidth={2}
+                          style={{ cursor: 'crosshair', transition: 'r 0.1s, fill 0.1s' }}
+                          onClick={(e) => { e.stopPropagation(); handlePinClick(comp.id, pin.name) }}
+                          onMouseEnter={() => setHoveredPin({ componentId: comp.id, pin: pin.name })}
+                          onMouseLeave={() => setHoveredPin(null)}
+                        />
+                        {isPinHovered && (
+                          <g pointerEvents="none">
+                            <rect x={local.x + labelInfo.dx - (labelInfo.anchor === 'middle' ? 16 : labelInfo.anchor === 'end' ? 32 : 0)} y={local.y + labelInfo.dy - 10} width={32} height={14} rx={3} fill="rgba(0,0,0,0.75)" />
+                            <text x={local.x + labelInfo.dx} y={local.y + labelInfo.dy} textAnchor={labelInfo.anchor} fill="white" fontSize={8} fontWeight={600} fontFamily="Inter, sans-serif">{pin.name}</text>
+                          </g>
+                        )}
+                      </g>
+                    )
+                  })}
+                </g>
+              )
+            })}
 
-          {components.map((comp) => {
-            const isSelected = selectedId === comp.id
-            const isHovered = hoveredComponentId === comp.id
-            const def = getComponentDef(comp.type)
-            const showPins = isHovered || isSelected || !!wiringFrom
-            return (
-              <g key={comp.id} transform={`translate(${comp.x}, ${comp.y})`}
-                onMouseDown={(e) => handleMouseDown(e, comp.id)}
-                onMouseEnter={() => setHoveredComponentId(comp.id)}
-                onMouseLeave={() => setHoveredComponentId(null)}
-                onDoubleClick={(e) => {
-                  e.stopPropagation()
-                  setEditingComponent({ id: comp.id, screenX: e.clientX, screenY: e.clientY })
-                }}
-                onContextMenu={(e) => {
-                  if (wiringFrom) return
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setEditingComponent({ id: comp.id, screenX: e.clientX, screenY: e.clientY })
-                }}
-                style={{ cursor: dragging?.id === comp.id ? 'grabbing' : 'grab' }}
-              >
-                {isSelected && <rect x={-4} y={-4} width={def.width + 8} height={def.height + 8} rx={6} fill="none" stroke="#4285F4" strokeWidth={2} strokeDasharray="4 2" />}
-                {highlightedComponentIds.includes(comp.id) && <rect x={-4} y={-4} width={def.width + 8} height={def.height + 8} fill="none" stroke="var(--color-red)" strokeWidth={2} strokeDasharray="6 3" rx={4} style={{ animation: 'drc-pulse 1.5s ease-in-out infinite' }} />}
-                {renderComponent(comp)}
-                {typeof comp.properties?.label === 'string' && comp.properties.label !== '' && (
-                  <text
-                    x={def.width / 2}
-                    y={def.height + 16}
-                    textAnchor="middle"
-                    fontSize={11}
-                    fill="var(--color-text-secondary)"
-                  >
-                    {comp.properties.label}
-                  </text>
-                )}
-                {showPins && def.pins.map((pin) => {
-                  const local = getPinLocalPos(pin, def)
-                  const isSource = wiringFrom?.componentId === comp.id && wiringFrom?.pin === pin.name
-                  const isPinHovered = hoveredPin?.componentId === comp.id && hoveredPin?.pin === pin.name
-                  const isWiringTarget = !!wiringFrom && wiringFrom.componentId !== comp.id && isPinHovered
-                  const radius = isSource || isPinHovered ? 10 : 8
-                  const fillColor = isSource ? '#0097A7' : isWiringTarget ? '#66BB6A' : isPinHovered ? '#26C6DA' : '#00BCD4'
-                  const labelInfo = getPinLabelOffset(pin.side)
-                  return (
-                    <g key={`pin-overlay-${pin.name}`}>
-                      <circle data-pin="true" cx={local.x} cy={local.y} r={radius} fill={fillColor} fillOpacity={0.85} stroke="white" strokeWidth={2}
-                        style={{ cursor: 'crosshair', transition: 'r 0.1s, fill 0.1s' }}
-                        onClick={(e) => { e.stopPropagation(); handlePinClick(comp.id, pin.name) }}
-                        onMouseEnter={() => setHoveredPin({ componentId: comp.id, pin: pin.name })}
-                        onMouseLeave={() => setHoveredPin(null)}
-                      />
-                      {isPinHovered && (
-                        <g pointerEvents="none">
-                          <rect x={local.x + labelInfo.dx - (labelInfo.anchor === 'middle' ? 16 : labelInfo.anchor === 'end' ? 32 : 0)} y={local.y + labelInfo.dy - 10} width={32} height={14} rx={3} fill="rgba(0,0,0,0.75)" />
-                          <text x={local.x + labelInfo.dx} y={local.y + labelInfo.dy} textAnchor={labelInfo.anchor} fill="white" fontSize={8} fontWeight={600} fontFamily="Inter, sans-serif">{pin.name}</text>
-                        </g>
-                      )}
-                    </g>
-                  )
-                })}
-              </g>
-            )
-          })}
+            {/* Layer 4: Wire hit areas — for click-to-select, above components */}
+            {wires.map((w) => (
+              <WireHitArea key={`wh-${w.id}`} wire={w} components={components}
+                isSelected={selectedWireId === w.id}
+                onSelect={handleWireSelect} onDoubleClick={handleWireDoubleClick}
+                onHoverChange={handleWireHoverChange}
+              />
+            ))}
+
+            {/* Layer 5: Wire preview (during wiring) */}
+            {wiringFrom && wiringMouse && <WirePreview from={wiringFrom} to={wiringMouse} />}
+
+            {/* Layer 6: Waypoint + segment handles (when wire selected, topmost) */}
+            {selectedWireId && (() => {
+              const wire = wires.find(w => w.id === selectedWireId)
+              if (!wire) return null
+              return (
+                <WireHandles wire={wire} components={components}
+                  onWaypointDragStart={handleWaypointDragStart}
+                  onWaypointContextMenu={handleWaypointContextMenu}
+                  onSegmentDragStart={handleSegmentDragStart}
+                />
+              )
+            })()}
           </g>
         </svg>
         {editingComponent && (() => {
