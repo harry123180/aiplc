@@ -1,7 +1,8 @@
 import { useRef, useCallback, useState, useEffect } from 'react'
 import useAppStore from '../store/useAppStore'
 import type { CanvasComponent, CanvasWire } from '../store/useAppStore'
-import { Plus, Trash2, RotateCw } from 'lucide-react'
+import { Plus, Trash2, RotateCw, ZoomIn, ZoomOut, RotateCcw, Maximize } from 'lucide-react'
+import ComponentPropertyDialog from './ComponentPropertyDialog'
 
 // ---- Pin layout definitions ----
 
@@ -338,6 +339,7 @@ function WirePath({ wire, components, isHighlighted, isSelected, onSelect, onDou
           const svg = (e.target as SVGElement).ownerSVGElement
           if (!svg) return
           const rect = svg.getBoundingClientRect()
+          const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
           onDoubleClick(wire.id, e.clientX - rect.left, e.clientY - rect.top)
         }}
         onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}
@@ -397,6 +399,17 @@ const PALETTE_ITEMS = [
 
 let nextCompId = 0
 
+// ---- Zoom / Pan constants ----
+const ZOOM_MIN = 0.2
+const ZOOM_MAX = 3
+const ZOOM_STEP = 0.1
+const ZOOM_WHEEL_FACTOR = 0.001
+
+function screenToWorld(clientX: number, clientY: number, svgEl: SVGSVGElement, zoom: number, panX: number, panY: number): { x: number; y: number } {
+  const rect = svgEl.getBoundingClientRect()
+  return { x: (clientX - rect.left) / zoom - panX, y: (clientY - rect.top) / zoom - panY }
+}
+
 // ---- Main CanvasPanel ----
 
 export default function CanvasPanel() {
@@ -411,6 +424,7 @@ export default function CanvasPanel() {
   const updateComponentPosition = useAppStore((s) => s.updateComponentPosition)
   const highlightedComponentIds = useAppStore((s) => s.highlightedComponentIds)
   const highlightedWireIds = useAppStore((s) => s.highlightedWireIds)
+  const updateComponentProperties = useAppStore((s) => s.updateComponentProperties)
   const addWireWaypoint = useAppStore((s) => s.addWireWaypoint)
   const updateWireWaypoint = useAppStore((s) => s.updateWireWaypoint)
   const removeWireWaypoint = useAppStore((s) => s.removeWireWaypoint)
@@ -422,8 +436,24 @@ export default function CanvasPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedWireId, setSelectedWireId] = useState<string | null>(null)
   const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null)
+
+  // --- Zoom & Pan state ---
+  const [zoom, setZoom] = useState(1)
+  const [panX, setPanX] = useState(0)
+  const [panY, setPanY] = useState(0)
+  const panRef = useRef({ x: 0, y: 0 })
+  const zoomRef = useRef(1)
+  useEffect(() => { panRef.current = { x: panX, y: panY } }, [panX, panY])
+  useEffect(() => { zoomRef.current = zoom }, [zoom])
+  const [isPanning, setIsPanning] = useState(false)
+  const panStartRef = useRef({ clientX: 0, clientY: 0, panX: 0, panY: 0 })
+  const isPanningRef = useRef(false)
+  const spaceHeldRef = useRef(false)
+  const transformGroupRef = useRef<SVGGElement>(null)
+
   const [svgSize, setSvgSize] = useState({ w: 1600, h: 900 })
   const [draggingWaypoint, setDraggingWaypoint] = useState<{ wireId: string; waypointIndex: number } | null>(null)
+  const [editingComponent, setEditingComponent] = useState<{id: string, screenX: number, screenY: number} | null>(null)
 
   useEffect(() => {
     const el = containerRef.current
@@ -440,43 +470,124 @@ export default function CanvasPanel() {
   const [wiringMouse, setWiringMouse] = useState<{ x: number; y: number } | null>(null)
   const [hoveredPin, setHoveredPin] = useState<{ componentId: string; pin: string } | null>(null)
 
-  const toSvgCoords = useCallback((e: React.MouseEvent) => {
+  const applyTransform = useCallback((z: number, px: number, py: number) => {
+    const g = transformGroupRef.current
+    if (g) g.setAttribute('transform', `scale(${z}) translate(${px}, ${py})`)
+  }, [])
+
+  const toWorldCoords = useCallback((e: React.MouseEvent | MouseEvent) => {
     const svg = svgRef.current
     if (!svg) return { x: 0, y: 0 }
-    const rect = svg.getBoundingClientRect()
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    return screenToWorld(e.clientX, e.clientY, svg, zoomRef.current, panRef.current.x, panRef.current.y)
   }, [])
+
+  const clampZoom = useCallback((z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)), [])
+
+  const zoomTo = useCallback((newZoom: number, cx?: number, cy?: number) => {
+    const svg = svgRef.current; if (!svg) return
+    const clamped = clampZoom(newZoom)
+    const oldZ = zoomRef.current
+    if (cx !== undefined && cy !== undefined) {
+      const rect = svg.getBoundingClientRect()
+      const sx = cx - rect.left, sy = cy - rect.top
+      const wx = sx / oldZ - panRef.current.x, wy = sy / oldZ - panRef.current.y
+      const npx = sx / clamped - wx, npy = sy / clamped - wy
+      panRef.current = { x: npx, y: npy }; setPanX(npx); setPanY(npy)
+    }
+    zoomRef.current = clamped; setZoom(clamped)
+    applyTransform(clamped, panRef.current.x, panRef.current.y)
+  }, [clampZoom, applyTransform])
+
+  const handleZoomIn = useCallback(() => {
+    const svg = svgRef.current; if (!svg) return
+    const r = svg.getBoundingClientRect()
+    zoomTo(zoomRef.current + ZOOM_STEP, r.left + r.width / 2, r.top + r.height / 2)
+  }, [zoomTo])
+
+  const handleZoomOut = useCallback(() => {
+    const svg = svgRef.current; if (!svg) return
+    const r = svg.getBoundingClientRect()
+    zoomTo(zoomRef.current - ZOOM_STEP, r.left + r.width / 2, r.top + r.height / 2)
+  }, [zoomTo])
+
+  const handleZoomReset = useCallback(() => {
+    zoomRef.current = 1; panRef.current = { x: 0, y: 0 }
+    setZoom(1); setPanX(0); setPanY(0); applyTransform(1, 0, 0)
+  }, [applyTransform])
+
+  const handleZoomFit = useCallback(() => {
+    if (components.length === 0) { handleZoomReset(); return }
+    let mnX = Infinity, mnY = Infinity, mxX = -Infinity, mxY = -Infinity
+    for (const comp of components) { const d = getComponentDef(comp.type); mnX = Math.min(mnX, comp.x); mnY = Math.min(mnY, comp.y); mxX = Math.max(mxX, comp.x + d.width); mxY = Math.max(mxY, comp.y + d.height) }
+    const pad = 40, cW = mxX - mnX + pad * 2, cH = mxY - mnY + pad * 2
+    const fZ = clampZoom(Math.min(svgSize.w / cW, svgSize.h / cH))
+    const fPX = -mnX + pad + (svgSize.w / fZ - cW) / 2, fPY = -mnY + pad + (svgSize.h / fZ - cH) / 2
+    zoomRef.current = fZ; panRef.current = { x: fPX, y: fPY }
+    setZoom(fZ); setPanX(fPX); setPanY(fPY); applyTransform(fZ, fPX, fPY)
+  }, [components, svgSize, clampZoom, applyTransform, handleZoomReset])
+
+  useEffect(() => {
+    const svg = svgRef.current; if (!svg) return
+    const onWheel = (e: WheelEvent) => { e.preventDefault(); zoomTo(clampZoom(zoomRef.current + -e.deltaY * ZOOM_WHEEL_FACTOR * zoomRef.current), e.clientX, e.clientY) }
+    svg.addEventListener('wheel', onWheel, { passive: false })
+    return () => svg.removeEventListener('wheel', onWheel)
+  }, [clampZoom, zoomTo])
+
+  const startPan = useCallback((cx: number, cy: number) => { isPanningRef.current = true; setIsPanning(true); panStartRef.current = { clientX: cx, clientY: cy, panX: panRef.current.x, panY: panRef.current.y } }, [])
+  const movePan = useCallback((cx: number, cy: number) => { if (!isPanningRef.current) return; const z = zoomRef.current; panRef.current = { x: panStartRef.current.panX + (cx - panStartRef.current.clientX) / z, y: panStartRef.current.panY + (cy - panStartRef.current.clientY) / z }; applyTransform(z, panRef.current.x, panRef.current.y) }, [applyTransform])
+  const endPan = useCallback(() => { if (!isPanningRef.current) return; isPanningRef.current = false; setIsPanning(false); setPanX(panRef.current.x); setPanY(panRef.current.y) }, [])
+
+  useEffect(() => {
+    const svg = svgRef.current; if (!svg) return
+    const onMD = (e: MouseEvent) => { if (e.button === 1) { e.preventDefault(); startPan(e.clientX, e.clientY) } else if (e.button === 0 && spaceHeldRef.current) { e.preventDefault(); e.stopPropagation(); startPan(e.clientX, e.clientY) } }
+    const onMM = (e: MouseEvent) => { if (isPanningRef.current) movePan(e.clientX, e.clientY) }
+    const onMU = (e: MouseEvent) => { if (isPanningRef.current && (e.button === 1 || e.button === 0)) endPan() }
+    svg.addEventListener('mousedown', onMD); window.addEventListener('mousemove', onMM); window.addEventListener('mouseup', onMU)
+    return () => { svg.removeEventListener('mousedown', onMD); window.removeEventListener('mousemove', onMM); window.removeEventListener('mouseup', onMU) }
+  }, [startPan, movePan, endPan])
+
+  useEffect(() => {
+    const onKD = (e: KeyboardEvent) => { if (e.code === 'Space' && !e.repeat) { const t = (e.target as HTMLElement)?.tagName; if (t === 'INPUT' || t === 'TEXTAREA') return; e.preventDefault(); spaceHeldRef.current = true } }
+    const onKU = (e: KeyboardEvent) => { if (e.code === 'Space') { spaceHeldRef.current = false; if (isPanningRef.current) endPan() } }
+    window.addEventListener('keydown', onKD); window.addEventListener('keyup', onKU)
+    return () => { window.removeEventListener('keydown', onKD); window.removeEventListener('keyup', onKU) }
+  }, [endPan])
 
   const handleAddComponent = useCallback((type: string) => {
     const id = `comp-${++nextCompId}-${Date.now()}`
-    recordAddComponent({ id, type, x: 150 + (nextCompId % 5) * 80, y: 80 + Math.floor(nextCompId / 5) * 100 })
+    const svg = svgRef.current
+    let x = 150 + (nextCompId % 5) * 80, y = 80 + Math.floor(nextCompId / 5) * 100
+    if (svg) { const r = svg.getBoundingClientRect(); const ctr = screenToWorld(r.left + r.width / 2, r.top + r.height / 2, svg, zoomRef.current, panRef.current.x, panRef.current.y); const d = getComponentDef(type); x = Math.round((ctr.x - d.width / 2) / 5) * 5; y = Math.round((ctr.y - d.height / 2) / 5) * 5 }
+    recordAddComponent({ id, type, x, y })
   }, [recordAddComponent])
 
   const handleMouseDown = useCallback((e: React.MouseEvent, compId: string) => {
+    if (isPanningRef.current || spaceHeldRef.current) return
     const target = e.target as SVGElement
     if (target.dataset?.pin === 'true') return
     e.stopPropagation()
     const comp = components.find((c) => c.id === compId)
     if (!comp) return
-    const svgCoord = toSvgCoords(e)
+    const world = toWorldCoords(e)
     dragStartPos.current = { id: compId, x: comp.x, y: comp.y }
-    setDragging({ id: compId, offsetX: svgCoord.x - comp.x, offsetY: svgCoord.y - comp.y })
+    setDragging({ id: compId, offsetX: world.x - comp.x, offsetY: world.y - comp.y })
     setSelectedId(compId)
     setSelectedWireId(null)
-  }, [components, toSvgCoords])
+  }, [components, toWorldCoords])
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isPanningRef.current) return
     if (draggingWaypoint) {
-      const svgCoord = toSvgCoords(e)
-      updateWireWaypoint(draggingWaypoint.wireId, draggingWaypoint.waypointIndex, { x: Math.round(svgCoord.x / 5) * 5, y: Math.round(svgCoord.y / 5) * 5 })
+      const world = toWorldCoords(e)
+      updateWireWaypoint(draggingWaypoint.wireId, draggingWaypoint.waypointIndex, { x: Math.round(world.x / 5) * 5, y: Math.round(world.y / 5) * 5 })
       return
     }
     if (dragging) {
-      const svgCoord = toSvgCoords(e)
-      updateComponentPosition(dragging.id, Math.round((svgCoord.x - dragging.offsetX) / 5) * 5, Math.round((svgCoord.y - dragging.offsetY) / 5) * 5)
+      const world = toWorldCoords(e)
+      updateComponentPosition(dragging.id, Math.round((world.x - dragging.offsetX) / 5) * 5, Math.round((world.y - dragging.offsetY) / 5) * 5)
     }
-    if (wiringFrom) { setWiringMouse(toSvgCoords(e)) }
-  }, [dragging, draggingWaypoint, wiringFrom, toSvgCoords, updateComponentPosition, updateWireWaypoint])
+    if (wiringFrom) { setWiringMouse(toWorldCoords(e)) }
+  }, [dragging, draggingWaypoint, wiringFrom, toWorldCoords, updateComponentPosition, updateWireWaypoint])
 
   const handleMouseUp = useCallback(() => {
     if (draggingWaypoint) { setDraggingWaypoint(null); return }
@@ -492,7 +603,8 @@ export default function CanvasPanel() {
   }, [dragging, draggingWaypoint, components, recordMoveComponent])
 
   const handleSvgClick = useCallback(() => {
-    if (!dragging) { setSelectedId(null); setSelectedWireId(null) }
+    if (isPanningRef.current) return
+    if (!dragging) { setSelectedId(null); setSelectedWireId(null); setEditingComponent(null) }
   }, [dragging])
 
   const handleDeleteSelected = useCallback(() => {
@@ -500,7 +612,7 @@ export default function CanvasPanel() {
     else if (selectedId) { recordRemoveComponent(selectedId); setSelectedId(null) }
   }, [selectedId, selectedWireId, recordRemoveComponent, removeCanvasWire])
 
-  const handleWireSelect = useCallback((wireId: string) => { setSelectedWireId(wireId); setSelectedId(null) }, [])
+  const handleWireSelect = useCallback((wireId: string) => { if (isPanningRef.current) return; setSelectedWireId(wireId); setSelectedId(null) }, [])
 
   const handleWireDoubleClick = useCallback((wireId: string, worldX: number, worldY: number) => {
     const wire = wires.find((w) => w.id === wireId)
@@ -526,6 +638,7 @@ export default function CanvasPanel() {
   }, [removeWireWaypoint])
 
   const handlePinClick = useCallback((componentId: string, pinName: string) => {
+    if (isPanningRef.current) return
     const comp = components.find((c) => c.id === componentId)
     if (!comp) return
     const pinPos = getPinWorldPos(comp, pinName)
@@ -555,6 +668,10 @@ export default function CanvasPanel() {
         handleDeleteSelected()
       }
       if (e.key === 'Escape') {
+        if (editingComponent) {
+          setEditingComponent(null)
+          return
+        }
         if (wiringFrom) { setWiringFrom(null); setWiringMouse(null) }
         else { setSelectedId(null); setSelectedWireId(null) }
       }
@@ -563,10 +680,22 @@ export default function CanvasPanel() {
         if (tag === 'INPUT' || tag === 'TEXTAREA') return
         recordRotateComponent(selectedId)
       }
+      if ((e.key === '=' || e.key === '+') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleZoomIn() }
+      if (e.key === '-' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleZoomOut() }
+      if (e.key === '0' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleZoomReset() }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [selectedId, selectedWireId, wiringFrom, handleDeleteSelected, recordRotateComponent])
+  }, [selectedId, selectedWireId, wiringFrom, editingComponent, handleDeleteSelected, recordRotateComponent, handleZoomIn, handleZoomOut, handleZoomReset])
+
+  const getCursor = () => {
+    if (isPanning) return 'grabbing'
+    if (spaceHeldRef.current) return 'grab'
+    if (draggingWaypoint) return 'move'
+    if (wiringFrom) return 'crosshair'
+    if (dragging) return 'grabbing'
+    return 'default'
+  }
 
   const isEmpty = components.length === 0
 
@@ -585,9 +714,17 @@ export default function CanvasPanel() {
             <Plus size={10} color={item.color} />{item.label}
           </button>
         ))}
+        {/* Zoom controls */}
+        <div className="flex items-center gap-0.5 ml-auto" style={{ borderLeft: '1px solid #E0E0E0', paddingLeft: 6 }}>
+          <button onClick={handleZoomOut} className="flex items-center justify-center rounded cursor-pointer" style={{ width: 22, height: 22, background: '#F5F5F5', border: '1px solid #E0E0E0', transition: 'background 0.15s' }} onMouseEnter={(e) => (e.currentTarget.style.background = '#EEEEEE')} onMouseLeave={(e) => (e.currentTarget.style.background = '#F5F5F5')} title="Zoom out (Ctrl+-)"><ZoomOut size={12} color="#5F6368" /></button>
+          <span style={{ fontSize: 10, color: '#5F6368', fontFamily: 'Inter, sans-serif', fontWeight: 600, minWidth: 38, textAlign: 'center', userSelect: 'none' }}>{Math.round(zoom * 100)}%</span>
+          <button onClick={handleZoomIn} className="flex items-center justify-center rounded cursor-pointer" style={{ width: 22, height: 22, background: '#F5F5F5', border: '1px solid #E0E0E0', transition: 'background 0.15s' }} onMouseEnter={(e) => (e.currentTarget.style.background = '#EEEEEE')} onMouseLeave={(e) => (e.currentTarget.style.background = '#F5F5F5')} title="Zoom in (Ctrl+=)"><ZoomIn size={12} color="#5F6368" /></button>
+          <button onClick={handleZoomReset} className="flex items-center justify-center rounded cursor-pointer" style={{ width: 22, height: 22, background: '#F5F5F5', border: '1px solid #E0E0E0', transition: 'background 0.15s' }} onMouseEnter={(e) => (e.currentTarget.style.background = '#EEEEEE')} onMouseLeave={(e) => (e.currentTarget.style.background = '#F5F5F5')} title="Reset zoom (Ctrl+0)"><RotateCcw size={11} color="#5F6368" /></button>
+          <button onClick={handleZoomFit} className="flex items-center justify-center rounded cursor-pointer" style={{ width: 22, height: 22, background: '#F5F5F5', border: '1px solid #E0E0E0', transition: 'background 0.15s' }} onMouseEnter={(e) => (e.currentTarget.style.background = '#EEEEEE')} onMouseLeave={(e) => (e.currentTarget.style.background = '#F5F5F5')} title="Fit to content"><Maximize size={11} color="#5F6368" /></button>
+        </div>
         {selectedId && !wiringFrom && (
           <button onClick={() => recordRotateComponent(selectedId)}
-            className="flex items-center gap-1 px-2 py-0.5 rounded cursor-pointer ml-auto"
+            className="flex items-center gap-1 px-2 py-0.5 rounded cursor-pointer"
             style={{ fontSize: 10, color: '#1565C0', background: '#E3F2FD', border: '1px solid #BBDEFB', fontFamily: 'Inter, sans-serif' }}
             title="Rotate 90deg (R)">
             <RotateCw size={10} />Rotate
@@ -612,7 +749,7 @@ export default function CanvasPanel() {
         <svg ref={svgRef} viewBox={`0 0 ${svgSize.w} ${svgSize.h}`} width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"
           onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}
           onClick={handleSvgClick} onContextMenu={handleSvgContextMenu}
-          style={{ cursor: draggingWaypoint ? 'move' : wiringFrom ? 'crosshair' : dragging ? 'grabbing' : 'default' }}
+          style={{ cursor: getCursor() }}
         >
           <defs>
             <pattern id="dot-grid" width="20" height="20" patternUnits="userSpaceOnUse">
@@ -620,12 +757,14 @@ export default function CanvasPanel() {
             </pattern>
           </defs>
           <rect width={svgSize.w} height={svgSize.h} fill="white" />
-          <rect width={svgSize.w} height={svgSize.h} fill="url(#dot-grid)" />
           {isEmpty && (
             <text x={svgSize.w / 2} y={svgSize.h / 2} textAnchor="middle" dominantBaseline="middle" fill="#BDBDBD" fontSize={14} fontFamily="Inter, sans-serif" fontWeight={400}>
               {'拖拉元件到畫布上，或讓 AI 幫你配置線路圖'}
             </text>
           )}
+
+          <g ref={transformGroupRef} transform={`scale(${zoom}) translate(${panX}, ${panY})`}>
+            <rect width={10000} height={10000} x={-5000} y={-5000} fill="url(#dot-grid)" />
 
           {wires.map((w) => (
             <WirePath key={w.id} wire={w} components={components}
@@ -647,11 +786,32 @@ export default function CanvasPanel() {
                 onMouseDown={(e) => handleMouseDown(e, comp.id)}
                 onMouseEnter={() => setHoveredComponentId(comp.id)}
                 onMouseLeave={() => setHoveredComponentId(null)}
+                onDoubleClick={(e) => {
+                  e.stopPropagation()
+                  setEditingComponent({ id: comp.id, screenX: e.clientX, screenY: e.clientY })
+                }}
+                onContextMenu={(e) => {
+                  if (wiringFrom) return
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setEditingComponent({ id: comp.id, screenX: e.clientX, screenY: e.clientY })
+                }}
                 style={{ cursor: dragging?.id === comp.id ? 'grabbing' : 'grab' }}
               >
                 {isSelected && <rect x={-4} y={-4} width={def.width + 8} height={def.height + 8} rx={6} fill="none" stroke="#4285F4" strokeWidth={2} strokeDasharray="4 2" />}
                 {highlightedComponentIds.includes(comp.id) && <rect x={-4} y={-4} width={def.width + 8} height={def.height + 8} fill="none" stroke="var(--color-red)" strokeWidth={2} strokeDasharray="6 3" rx={4} style={{ animation: 'drc-pulse 1.5s ease-in-out infinite' }} />}
                 {renderComponent(comp)}
+                {typeof comp.properties?.label === 'string' && comp.properties.label !== '' && (
+                  <text
+                    x={def.width / 2}
+                    y={def.height + 16}
+                    textAnchor="middle"
+                    fontSize={11}
+                    fill="var(--color-text-secondary)"
+                  >
+                    {comp.properties.label}
+                  </text>
+                )}
                 {showPins && def.pins.map((pin) => {
                   const local = getPinLocalPos(pin, def)
                   const isSource = wiringFrom?.componentId === comp.id && wiringFrom?.pin === pin.name
@@ -680,7 +840,28 @@ export default function CanvasPanel() {
               </g>
             )
           })}
+          </g>
         </svg>
+        {editingComponent && (() => {
+          const comp = components.find(c => c.id === editingComponent.id)
+          if (!comp) return null
+          return (
+            <ComponentPropertyDialog
+              componentId={comp.id}
+              componentType={comp.type}
+              properties={comp.properties || {}}
+              position={{ x: editingComponent.screenX, y: editingComponent.screenY }}
+              onClose={() => setEditingComponent(null)}
+              onUpdate={(key, value) => {
+                updateComponentProperties(comp.id, { [key]: value })
+              }}
+              onDelete={() => {
+                recordRemoveComponent(comp.id)
+                setEditingComponent(null)
+              }}
+            />
+          )
+        })()}
       </div>
     </div>
   )
