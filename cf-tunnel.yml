@@ -1,0 +1,18 @@
+# cf-tunnel.yml — Cloudflare Tunnel 設定
+# 由 cf-tunnel skill 維護，請勿手動刪除
+
+ssh_host: tsic@tsic-m8s
+
+tunnel_name: qianpro-tunnel
+tunnel_id: 3306d6d6-31c5-4b1c-b880-e0a15804e511
+
+domains:
+  - qianpro.shop
+
+routes:
+  - hostname: velxio.qianpro.shop
+    service: http://localhost:3110
+    project: velxio (reference instance)
+  - hostname: aiplc.qianpro.shop
+    service: http://localhost:3120
+    project: aiplc-mvp

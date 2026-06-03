@@ -1,0 +1,96 @@
+# AIPLC — AI-Powered PLC Simulator
+
+AI 驅動的 PLC 模擬器，用 C 語言開發工控程式，透過 LLM Agent 輔助電氣配線與程式生成。
+
+**Live:** [aiplc.qianpro.shop](https://aiplc.qianpro.shop)
+
+---
+
+## 概念
+
+AIPLC 是一個 Web-based 的 PLC 開發與模擬平台，核心特點：
+
+- **C 語言開發** — 不走傳統 Ladder/ST，用 C 寫 PLC 程式，對 LLM 友好
+- **AI Code Assistant** — 串接 Claude API，透過 Chat 介面輔助寫程式
+- **MCP 整合** — Agent 可透過 MCP 操作線路圖（放置元件、接線、配置 I/O）
+- **STM32 模擬** — 後端用 QEMU 模擬 STM32，真正跑編譯後的 ELF
+- **工控元件庫** — 按鈕、指示燈、繼電器、電磁閥、馬達、VFD 等
+
+```
+使用者描述需求 → AI 生成接線圖 + C 程式 → 編譯 → QEMU 模擬 → 即時看結果
+```
+
+## 架構
+
+```
+┌─ Frontend (React + Vite + TS) ─────────────────────┐
+│                                                     │
+│  ┌───────────────┐  ┌──────────────────────────┐    │
+│  │  Monaco Editor │  │  AI Chat Panel           │    │
+│  │  (C code)      │  │  (Claude / LLM)          │    │
+│  │               │  │  - 接線指導               │    │
+│  │               │  │  - 程式生成               │    │
+│  │               │  │  - MCP tool calls         │    │
+│  └───────┬───────┘  └──────────┬───────────────┘    │
+│          │                     │                    │
+│  ┌───────┴─────────────────────┴───────────────┐    │
+│  │          Canvas (線路圖 / 元件配置)          │    │
+│  └─────────────────────────────────────────────┘    │
+└──────────────────────┬──────────────────────────────┘
+                       │ WebSocket + REST
+┌──────────────────────┴──────────────────────────────┐
+│  Backend (FastAPI + Python)                          │
+│                                                      │
+│  /api/compile    — C → ELF (arm-gcc / STM32duino)    │
+│  /api/simulate   — QEMU STM32 worker (WebSocket)     │
+│  /api/agent      — Claude API proxy + MCP bridge     │
+└──────────────────────────────────────────────────────┘
+```
+
+## PLC HAL API
+
+使用者寫的 C 程式使用 `aiplc.h` 提供的 PLC 風格 API：
+
+```c
+#include "aiplc.h"
+
+void PLC_Init() {
+    Serial_Print("Ready\n");
+}
+
+void PLC_Scan() {
+    bool start = DI_Read(0);    // 數位輸入
+    bool stop  = DI_Read(1);
+
+    static bool running = false;
+
+    if (stop)  running = false;
+    if (start) running = true;
+
+    DO_Write(0, running);       // 數位輸出 → 接觸器
+    DO_Write(1, running);       // 指示燈
+}
+```
+
+## 專案結構
+
+```
+aiplc/
+├── README.md
+├── ARCHITECTURE.md          # 完整架構規劃
+├── cf-tunnel.yml            # Cloudflare Tunnel 設定
+├── velxio/                  # Velxio 開源版（參考用）
+│   ├── frontend/            #   React 前端
+│   ├── backend/             #   FastAPI 後端
+│   └── ...
+└── (MVP 程式碼 — 開發中)
+```
+
+## 參考
+
+- [Velxio](https://github.com/davidmonterocrespo24/velxio) — 開源 Arduino 模擬器，本專案參考其 STM32 QEMU 模擬架構
+- Velxio 實例：[velxio.qianpro.shop](https://velxio.qianpro.shop)
+
+## 授權
+
+待定（已聯繫 Velxio 作者洽談商業授權）
