@@ -33,6 +33,23 @@ export interface McpSettings {
   apiKey: string
 }
 
+// DRC types
+export type DrcSeverity = 'error' | 'warning'
+
+export interface DrcIssue {
+  severity: DrcSeverity
+  code: string               // e.g. 'OUTPUT_SHORT', 'MISSING_POWER'
+  message: string            // human-readable Chinese
+  componentIds?: string[]    // affected component IDs
+  wireIds?: string[]         // affected wire IDs
+}
+
+export interface DrcResult {
+  passed: boolean            // true if zero errors (warnings OK)
+  issues: DrcIssue[]
+  timestamp: number
+}
+
 interface AppState {
   // Editor
   code: string
@@ -75,13 +92,42 @@ interface AppState {
   addSerialLine: (line: string) => void
   clearSerial: () => void
 
-  // Bottom panel
-  bottomTab: 'canvas' | 'serial'
-  setBottomTab: (tab: 'canvas' | 'serial') => void
+  // Panel layout
+  leftPanelWidth: number           // percentage (20-80), default 50
+  setLeftPanelWidth: (w: number) => void
 
-  // Panel sizing
-  bottomPanelHeight: number
-  setBottomPanelHeight: (height: number) => void
+  leftBottomPanelHeight: number    // px, default 150
+  setLeftBottomPanelHeight: (h: number) => void
+
+  rightBottomPanelHeight: number   // px, default 150
+  setRightBottomPanelHeight: (h: number) => void
+
+  leftBottomTab: 'console' | 'errors'    // default 'console'
+  setLeftBottomTab: (tab: 'console' | 'errors') => void
+
+  rightBottomTab: 'serial'               // default 'serial' (future: 'oscilloscope')
+  setRightBottomTab: (tab: 'serial') => void
+
+  // AI Chat drawer
+  isChatOpen: boolean              // default true
+  setChatOpen: (open: boolean) => void
+
+  // Compilation Console
+  compilationOutput: string[]
+  addCompilationLine: (line: string) => void
+  clearCompilation: () => void
+
+  // DRC
+  drcResults: DrcResult | null
+  setDrcResults: (results: DrcResult | null) => void
+  isDrcModalOpen: boolean
+  setDrcModalOpen: (open: boolean) => void
+
+  // Canvas highlighting for DRC
+  highlightedComponentIds: string[]
+  highlightedWireIds: string[]
+  setHighlights: (compIds: string[], wireIds: string[]) => void
+  clearHighlights: () => void
 }
 
 let messageIdCounter = 0
@@ -189,13 +235,45 @@ void PLC_Scan() {
     set((state) => ({ serialOutput: [...state.serialOutput, line] })),
   clearSerial: () => set({ serialOutput: [] }),
 
-  // Bottom panel
-  bottomTab: 'canvas',
-  setBottomTab: (bottomTab) => set({ bottomTab }),
+  // Panel layout
+  leftPanelWidth: 50,
+  setLeftPanelWidth: (leftPanelWidth) => set({ leftPanelWidth }),
 
-  // Panel sizing
-  bottomPanelHeight: 250,
-  setBottomPanelHeight: (bottomPanelHeight) => set({ bottomPanelHeight }),
+  leftBottomPanelHeight: 150,
+  setLeftBottomPanelHeight: (leftBottomPanelHeight) => set({ leftBottomPanelHeight }),
+
+  rightBottomPanelHeight: 150,
+  setRightBottomPanelHeight: (rightBottomPanelHeight) => set({ rightBottomPanelHeight }),
+
+  leftBottomTab: 'console',
+  setLeftBottomTab: (leftBottomTab) => set({ leftBottomTab }),
+
+  rightBottomTab: 'serial',
+  setRightBottomTab: (rightBottomTab) => set({ rightBottomTab }),
+
+  // AI Chat drawer
+  isChatOpen: true,
+  setChatOpen: (isChatOpen) => set({ isChatOpen }),
+
+  // Compilation Console
+  compilationOutput: [],
+  addCompilationLine: (line) =>
+    set((state) => ({ compilationOutput: [...state.compilationOutput, line] })),
+  clearCompilation: () => set({ compilationOutput: [] }),
+
+  // DRC
+  drcResults: null,
+  setDrcResults: (drcResults) => set({ drcResults }),
+  isDrcModalOpen: false,
+  setDrcModalOpen: (isDrcModalOpen) => set({ isDrcModalOpen }),
+
+  // Canvas highlighting for DRC
+  highlightedComponentIds: [],
+  highlightedWireIds: [],
+  setHighlights: (highlightedComponentIds, highlightedWireIds) =>
+    set({ highlightedComponentIds, highlightedWireIds }),
+  clearHighlights: () =>
+    set({ highlightedComponentIds: [], highlightedWireIds: [] }),
 }))
 
 export default useAppStore

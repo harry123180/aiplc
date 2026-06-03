@@ -55,3 +55,9 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #A0A0A0;
 }
+
+/* DRC error pulse animation */
+@keyframes drc-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}

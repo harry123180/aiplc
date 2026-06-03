@@ -617,9 +617,11 @@ function renderComponent(comp: CanvasComponent) {
 function WirePath({
   wire,
   components,
+  isHighlighted,
 }: {
   wire: CanvasWire
   components: CanvasComponent[]
+  isHighlighted: boolean
 }) {
   const fromComp = components.find((c) => c.id === wire.fromComponent)
   const toComp = components.find((c) => c.id === wire.toComponent)
@@ -636,10 +638,11 @@ function WirePath({
     <path
       d={d}
       fill="none"
-      stroke="#1565C0"
-      strokeWidth={1.5}
+      stroke={isHighlighted ? 'var(--color-red)' : '#1565C0'}
+      strokeWidth={isHighlighted ? 2.5 : 1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
+      style={isHighlighted ? { animation: 'drc-pulse 1.5s ease-in-out infinite' } : undefined}
     />
   )
 }
@@ -718,6 +721,8 @@ export default function CanvasPanel() {
   const addCanvasWire = useAppStore((s) => s.addCanvasWire)
   const removeCanvasComponent = useAppStore((s) => s.removeCanvasComponent)
   const updateComponentPosition = useAppStore((s) => s.updateComponentPosition)
+  const highlightedComponentIds = useAppStore((s) => s.highlightedComponentIds)
+  const highlightedWireIds = useAppStore((s) => s.highlightedWireIds)
 
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -1038,7 +1043,12 @@ export default function CanvasPanel() {
 
           {/* Wires (render behind components) */}
           {wires.map((w) => (
-            <WirePath key={w.id} wire={w} components={components} />
+            <WirePath
+              key={w.id}
+              wire={w}
+              components={components}
+              isHighlighted={highlightedWireIds.includes(w.id)}
+            />
           ))}
 
           {/* Wiring preview with orthogonal path + markers */}
@@ -1076,6 +1086,21 @@ export default function CanvasPanel() {
                     stroke="#4285F4"
                     strokeWidth={2}
                     strokeDasharray="4 2"
+                  />
+                )}
+                {/* DRC error highlight */}
+                {highlightedComponentIds.includes(comp.id) && (
+                  <rect
+                    x={-4}
+                    y={-4}
+                    width={def.width + 8}
+                    height={def.height + 8}
+                    fill="none"
+                    stroke="var(--color-red)"
+                    strokeWidth={2}
+                    strokeDasharray="6 3"
+                    rx={4}
+                    style={{ animation: 'drc-pulse 1.5s ease-in-out infinite' }}
                   />
                 )}
                 {renderComponent(comp)}
