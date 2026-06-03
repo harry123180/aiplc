@@ -65,7 +65,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "canvas_add_wire",
-        "description": "Add a wire connecting two component ports on the canvas.",
+        "description": "在兩個元件之間建立接線。使用前請先呼叫 component_info 確認元件的正確 pin 名稱。pin 名稱必須完全匹配（例如接觸器的線圈腳是 'COIL+' 不是 'coil'，指示燈的正極是 'A' 不是 '+'）。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -146,7 +146,7 @@ TOOLS: list[dict[str, Any]] = [
     # ── Component library ──────────────────────────────────────────────
     {
         "name": "component_list",
-        "description": "List all available PLC component types with their categories.",
+        "description": "列出所有可用的 PLC 元件類型，包含分類、pin 名稱與 pin 說明。回傳結果可直接用於確認接線時的 pin 名稱。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -159,7 +159,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "component_info",
-        "description": "Get detailed info about a specific component type (ports, ratings, description).",
+        "description": "查詢特定元件類型的詳細資訊，包含所有可用的 pin 名稱。接線前務必先呼叫此工具確認 pin 名稱。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -303,6 +303,15 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "pins": ["DI0", "DI1", "DI2", "DI3", "DI4", "DI5", "DI6", "DI7",
                  "DO0", "DO1", "DO2", "DO3", "DO4", "DO5", "DO6", "DO7",
                  "AI0", "AI1", "AI2", "AI3", "AO0", "AO1", "VCC", "GND"],
+        "pin_descriptions": {
+            "DI0": "數位輸入 0", "DI1": "數位輸入 1", "DI2": "數位輸入 2", "DI3": "數位輸入 3",
+            "DI4": "數位輸入 4", "DI5": "數位輸入 5", "DI6": "數位輸入 6", "DI7": "數位輸入 7",
+            "DO0": "數位輸出 0", "DO1": "數位輸出 1", "DO2": "數位輸出 2", "DO3": "數位輸出 3",
+            "DO4": "數位輸出 4", "DO5": "數位輸出 5", "DO6": "數位輸出 6", "DO7": "數位輸出 7",
+            "AI0": "類比輸入 0", "AI1": "類比輸入 1", "AI2": "類比輸入 2", "AI3": "類比輸入 3",
+            "AO0": "類比輸出 0", "AO1": "類比輸出 1",
+            "VCC": "電源", "GND": "接地",
+        },
     },
     "button-no": {
         "type": "button-no",
@@ -310,6 +319,10 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "input",
         "description": "Momentary push button with normally-open contact. Closes circuit when pressed.",
         "pins": ["COM", "NO"],
+        "pin_descriptions": {
+            "COM": "共接點",
+            "NO": "常開接點",
+        },
     },
     "button-nc": {
         "type": "button-nc",
@@ -317,6 +330,10 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "input",
         "description": "Momentary push button with normally-closed contact. Opens circuit when pressed.",
         "pins": ["COM", "NC"],
+        "pin_descriptions": {
+            "COM": "共接點",
+            "NC": "常閉接點",
+        },
     },
     "indicator-light": {
         "type": "indicator-light",
@@ -324,6 +341,10 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "output",
         "description": "Panel-mount indicator light (24V DC). Available in red, yellow, and green.",
         "pins": ["A", "K"],
+        "pin_descriptions": {
+            "A": "陽極(+)",
+            "K": "陰極(-)",
+        },
         "properties": {"color": {"options": ["red", "yellow", "green"], "default": "red"}},
     },
     "relay": {
@@ -332,6 +353,13 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "output",
         "description": "Electromechanical relay with coil drive and SPDT output contacts.",
         "pins": ["COIL+", "COIL-", "COM", "NO", "NC"],
+        "pin_descriptions": {
+            "COIL+": "線圈正極",
+            "COIL-": "線圈負極",
+            "COM": "共接點",
+            "NO": "常開接點",
+            "NC": "常閉接點",
+        },
     },
     "contactor-3phase": {
         "type": "contactor-3phase",
@@ -339,6 +367,16 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "output",
         "description": "3-phase power contactor for switching motors and heavy loads.",
         "pins": ["COIL+", "COIL-", "L1", "L2", "L3", "T1", "T2", "T3"],
+        "pin_descriptions": {
+            "COIL+": "線圈正極(接PLC DO)",
+            "COIL-": "線圈負極(接GND)",
+            "L1": "電源側 L1",
+            "L2": "電源側 L2",
+            "L3": "電源側 L3",
+            "T1": "負載側 T1(接馬達 U)",
+            "T2": "負載側 T2(接馬達 V)",
+            "T3": "負載側 T3(接馬達 W)",
+        },
     },
     "motor-3phase": {
         "type": "motor-3phase",
@@ -346,6 +384,11 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "output",
         "description": "3-phase AC induction motor.",
         "pins": ["U", "V", "W"],
+        "pin_descriptions": {
+            "U": "U相",
+            "V": "V相",
+            "W": "W相",
+        },
     },
     "thermal-overload": {
         "type": "thermal-overload",
@@ -353,6 +396,16 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "protection",
         "description": "Bimetallic thermal overload relay for motor overcurrent protection.",
         "pins": ["L1", "L2", "L3", "T1", "T2", "T3", "NC", "NO"],
+        "pin_descriptions": {
+            "L1": "電源側輸入 L1",
+            "L2": "電源側輸入 L2",
+            "L3": "電源側輸入 L3",
+            "T1": "負載側輸出 T1",
+            "T2": "負載側輸出 T2",
+            "T3": "負載側輸出 T3",
+            "NC": "常閉輔助接點(過載斷開)",
+            "NO": "常開輔助接點(過載閉合)",
+        },
     },
     "emergency-stop": {
         "type": "emergency-stop",
@@ -360,6 +413,10 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "input",
         "description": "Mushroom-head emergency stop button with dual NC contacts. Latching — requires twist to release.",
         "pins": ["NC1", "NC2"],
+        "pin_descriptions": {
+            "NC1": "常閉接點1",
+            "NC2": "常閉接點2",
+        },
     },
     "proximity-pnp": {
         "type": "proximity-pnp",
@@ -367,6 +424,11 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "sensor",
         "description": "Inductive proximity sensor with PNP (sourcing) output. Detects metallic objects.",
         "pins": ["+V", "OUT", "GND"],
+        "pin_descriptions": {
+            "+V": "電源正極",
+            "OUT": "信號輸出",
+            "GND": "接地",
+        },
     },
     "resistor": {
         "type": "resistor",
@@ -374,6 +436,10 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "passive",
         "description": "限流電阻",
         "pins": ["1", "2"],
+        "pin_descriptions": {
+            "1": "端子1",
+            "2": "端子2",
+        },
         "properties": {"value": {"default": "1kΩ"}},
     },
     "ground": {
@@ -382,6 +448,9 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "power",
         "description": "接地端子",
         "pins": ["GND"],
+        "pin_descriptions": {
+            "GND": "接地端",
+        },
     },
     "power-24v": {
         "type": "power-24v",
@@ -389,6 +458,10 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "power",
         "description": "24VDC 電源供應器",
         "pins": ["V+", "V-"],
+        "pin_descriptions": {
+            "V+": "正極24V",
+            "V-": "負極0V",
+        },
         "properties": {"voltage": {"default": "24"}},
     },
     "junction": {
@@ -397,6 +470,11 @@ _COMPONENT_LIBRARY: dict[str, dict] = {
         "category": "passive",
         "description": "接線端子 / 分歧點",
         "pins": ["1", "2", "3"],
+        "pin_descriptions": {
+            "1": "端子1",
+            "2": "端子2",
+            "3": "端子3",
+        },
     },
 }
 
@@ -441,16 +519,39 @@ async def _canvas_add_component(args: dict) -> dict:
 
 async def _canvas_add_wire(args: dict) -> dict:
     from_component = args.get("from_component_id", "")
-    from_pin = args.get("from_port", "")
+    from_pin = args.get("from_port", "").strip()
     to_component = args.get("to_component_id", "")
-    to_pin = args.get("to_port", "")
+    to_pin = args.get("to_port", "").strip()
 
     # Validate that both referenced components exist
-    comp_ids = {c["id"] for c in _canvas_state["components"]}
-    if from_component not in comp_ids:
+    comp_map = {c["id"]: c for c in _canvas_state["components"]}
+    if from_component not in comp_map:
         return {"success": False, "error": f"Component '{from_component}' not found on canvas"}
-    if to_component not in comp_ids:
+    if to_component not in comp_map:
         return {"success": False, "error": f"Component '{to_component}' not found on canvas"}
+
+    # Validate pin names against component library
+    from_comp = comp_map[from_component]
+    to_comp = comp_map[to_component]
+
+    from_type = from_comp.get("type", "")
+    to_type = to_comp.get("type", "")
+
+    if from_type in _COMPONENT_LIBRARY:
+        valid_pins = _COMPONENT_LIBRARY[from_type]["pins"]
+        if from_pin not in valid_pins:
+            return {
+                "success": False,
+                "error": f"Pin '{from_pin}' not found on {from_type}. Valid pins: {', '.join(valid_pins)}",
+            }
+
+    if to_type in _COMPONENT_LIBRARY:
+        valid_pins = _COMPONENT_LIBRARY[to_type]["pins"]
+        if to_pin not in valid_pins:
+            return {
+                "success": False,
+                "error": f"Pin '{to_pin}' not found on {to_type}. Valid pins: {', '.join(valid_pins)}",
+            }
 
     wire_id = _gen_id("wire")
     wire = {
