@@ -75,6 +75,8 @@ interface AppState {
   // Editor
   code: string
   setCode: (code: string) => void
+  lastSavedCode: string
+  markCodeSaved: () => void
 
   // Chat
   messages: ChatMessage[]
@@ -194,17 +196,7 @@ interface AppState {
 
 let messageIdCounter = 0
 
-const useAppStore = create<AppState>((set) => ({
-  // View mode
-  viewMode: 'split' as ViewMode,
-  setViewMode: (viewMode) => set({ viewMode }),
-
-  // UI density
-  density: 'regular' as Density,
-  setDensity: (density) => set({ density }),
-
-  // Editor
-  code: `#include "aiplc.h"
+const DEFAULT_CODE = `#include "aiplc.h"
 
 // PLC 初始化（開機執行一次）
 void PLC_Init() {
@@ -225,8 +217,22 @@ void PLC_Scan() {
     // 寫入輸出
     DO_Write(0, running);  // 接觸器
     DO_Write(1, running);  // 運轉指示燈
-}`,
+}`
+
+const useAppStore = create<AppState>((set) => ({
+  // View mode
+  viewMode: 'split' as ViewMode,
+  setViewMode: (viewMode) => set({ viewMode }),
+
+  // UI density
+  density: 'regular' as Density,
+  setDensity: (density) => set({ density }),
+
+  // Editor
+  code: DEFAULT_CODE,
   setCode: (code) => set({ code }),
+  lastSavedCode: DEFAULT_CODE,
+  markCodeSaved: () => set((state) => ({ lastSavedCode: state.code })),
 
   // Chat
   messages: [],

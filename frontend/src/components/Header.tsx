@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Settings, Play, Square, Shield, MessageSquare, Undo2, Redo2 } from 'lucide-react'
 import useAppStore from '../store/useAppStore'
 import { runDrc } from '../utils/circuitVerifier'
+import { simulationClient } from '../services/simulationClient'
 import DrcVerificationModal from './DrcVerificationModal'
 import BrandMark from './ui/BrandMark'
 import SegmentedControl from './ui/SegmentedControl'
@@ -60,19 +61,77 @@ export default function Header() {
 
   const handleRun = async () => {
     if (isSimulating) {
+      // Stop simulation
+      simulationClient.stop()
+      simulationClient.disconnect()
       setIsSimulating(false)
       return
     }
     // Run DRC first
-    const { components, wires, code } = useAppStore.getState()
+    const { components, wires, code, addSerialLine, clearSerial } = useAppStore.getState()
     const result = await runDrc(components, wires, code)
     setDrcResults(result)
     if (!result.passed) {
       setDrcModalOpen(true) // show modal, block run
       return
     }
-    // If passed (may have warnings), proceed to simulate
-    setIsSimulating(true)
+    // Compile the code before simulating
+    const { addCompilationLine, clearCompilation, setBottomDockOpen, setBottomDockTab } = useAppStore.getState()
+    clearCompilation()
+    addCompilationLine('[INFO] Compiling...')
+
+    try {
+      const resp = await fetch('/api/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      const compileResult = await resp.json()
+
+      if (compileResult.output) {
+        compileResult.output.split('\n').forEach((line: string) => {
+          if (line.trim()) addCompilationLine(line)
+        })
+      }
+
+      if (!compileResult.success) {
+        addCompilationLine('[ERROR] Compilation failed')
+        setBottomDockOpen(true)
+        setBottomDockTab('console')
+        return
+      }
+
+      addCompilationLine('[OK] Compilation successful')
+    } catch (err) {
+      addCompilationLine(`[ERROR] Compile request failed: ${err}`)
+      setBottomDockOpen(true)
+      setBottomDockTab('console')
+      return
+    }
+
+    // If compilation passed, proceed to simulate
+    clearSerial()
+    try {
+      await simulationClient.connect({
+        onSerialOutput: (text) => {
+          useAppStore.getState().addSerialLine(text.replace(/\n$/, ''))
+        },
+        onGpioChange: (pin, state) => {
+          console.log(`[GPIO] pin ${pin} = ${state}`)
+        },
+        onSystemEvent: (event) => {
+          if (event === 'booted') {
+            useAppStore.getState().addSerialLine('[SYSTEM] PLC simulation started')
+          } else if (event === 'stopped') {
+            useAppStore.getState().addSerialLine('[SYSTEM] PLC simulation stopped')
+          }
+        },
+      })
+      simulationClient.start(code)
+      setIsSimulating(true)
+    } catch {
+      addSerialLine('[ERROR] Failed to connect to simulation server')
+    }
   }
 
   const handleDrcClose = () => {
@@ -80,10 +139,67 @@ export default function Header() {
     clearHighlights()
   }
 
-  const handleDrcRunAnyway = () => {
+  const handleDrcRunAnyway = async () => {
     setDrcModalOpen(false)
     clearHighlights()
-    setIsSimulating(true)
+    const { code, addSerialLine, clearSerial, addCompilationLine, clearCompilation, setBottomDockOpen: setDockOpen, setBottomDockTab: setDockTab } = useAppStore.getState()
+
+    // Compile the code first
+    clearCompilation()
+    addCompilationLine('[INFO] Compiling...')
+
+    try {
+      const resp = await fetch('/api/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      const compileResult = await resp.json()
+
+      if (compileResult.output) {
+        compileResult.output.split('\n').forEach((line: string) => {
+          if (line.trim()) addCompilationLine(line)
+        })
+      }
+
+      if (!compileResult.success) {
+        addCompilationLine('[ERROR] Compilation failed')
+        setDockOpen(true)
+        setDockTab('console')
+        return
+      }
+
+      addCompilationLine('[OK] Compilation successful')
+    } catch (err) {
+      addCompilationLine(`[ERROR] Compile request failed: ${err}`)
+      setDockOpen(true)
+      setDockTab('console')
+      return
+    }
+
+    // If compilation passed, proceed to simulate
+    clearSerial()
+    try {
+      await simulationClient.connect({
+        onSerialOutput: (text) => {
+          useAppStore.getState().addSerialLine(text.replace(/\n$/, ''))
+        },
+        onGpioChange: (pin, state) => {
+          console.log(`[GPIO] pin ${pin} = ${state}`)
+        },
+        onSystemEvent: (event) => {
+          if (event === 'booted') {
+            useAppStore.getState().addSerialLine('[SYSTEM] PLC simulation started')
+          } else if (event === 'stopped') {
+            useAppStore.getState().addSerialLine('[SYSTEM] PLC simulation stopped')
+          }
+        },
+      })
+      simulationClient.start(code)
+      setIsSimulating(true)
+    } catch {
+      addSerialLine('[ERROR] Failed to connect to simulation server')
+    }
   }
 
   return (

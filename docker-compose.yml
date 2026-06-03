@@ -5,7 +5,13 @@ services:
     restart: unless-stopped
     ports:
       - '3120:80'
+    volumes:
+      - aiplc-data:/app/data
     environment:
       - LITELLM_BASE_URL=${LITELLM_BASE_URL:-https://ai.qianpro.shop}
       - LITELLM_API_KEY=${LITELLM_API_KEY:-}
       - LITELLM_MODEL=${LITELLM_MODEL:-claude-sonnet-4-20250514}
+      - AIPLC_DATA_DIR=/app/data
+
+volumes:
+  aiplc-data:

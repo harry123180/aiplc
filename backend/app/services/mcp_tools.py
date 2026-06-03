@@ -3,33 +3,49 @@
 import copy
 from typing import Any
 
+from app.services.project_store import store as _db
+
 # ---------------------------------------------------------------------------
-# In-memory state — mirrors what the frontend canvas/editor would hold.
-# Persists for the lifetime of the server process.
+# Default values used when DB has no stored state yet.
 # ---------------------------------------------------------------------------
 
-_canvas_state: dict[str, list] = {
-    "components": [],  # list of {id, type, x, y, properties}
-    "wires": [],       # list of {id, from_component, from_pin, to_component, to_pin}
-}
+DEFAULT_CODE = (
+    '#include "aiplc.h"\n'
+    "\n"
+    "void PLC_Init() {\n"
+    '    Serial_Print("AIPLC Ready\\n");\n'
+    "}\n"
+    "\n"
+    "void PLC_Scan() {\n"
+    "    // Your control logic here\n"
+    "}\n"
+)
 
-_editor_state: dict[str, str] = {
-    "code": (
-        '#include "aiplc.h"\n'
-        "\n"
-        "void PLC_Init() {\n"
-        '    Serial_Print("AIPLC Ready\\n");\n'
-        "}\n"
-        "\n"
-        "void PLC_Scan() {\n"
-        "    // Your control logic here\n"
-        "}\n"
-    ),
-}
+# ---------------------------------------------------------------------------
+# In-memory state (cache) — loaded from SQLite on startup, persisted on write.
+# ---------------------------------------------------------------------------
 
-_io_mapping: dict[str, dict] = {}  # {channel_name: mapping_info}
+_canvas_state: dict[str, list] = _db.get("canvas_state", {"components": [], "wires": []})
+_editor_state: dict[str, str] = _db.get("editor_state", {"code": DEFAULT_CODE})
+_io_mapping: dict[str, dict] = _db.get("io_mapping", {})
+_next_id: int = _db.get("next_id", 1)
 
-_next_id: int = 1
+
+# ---------------------------------------------------------------------------
+# Persistence helpers — call after every mutation
+# ---------------------------------------------------------------------------
+
+def _persist_canvas():
+    _db.set("canvas_state", _canvas_state)
+
+def _persist_editor():
+    _db.set("editor_state", _editor_state)
+
+def _persist_io_mapping():
+    _db.set("io_mapping", _io_mapping)
+
+def _persist_next_id():
+    _db.set("next_id", _next_id)
 
 # ---------------------------------------------------------------------------
 # Tool registry — 12 tools from the MVP spec
@@ -495,6 +511,7 @@ def _gen_id(prefix: str) -> str:
     global _next_id
     uid = f"{prefix}_{_next_id}"
     _next_id += 1
+    _persist_next_id()
     return uid
 
 
@@ -515,6 +532,7 @@ async def _canvas_add_component(args: dict) -> dict:
         "properties": properties,
     }
     _canvas_state["components"].append(component)
+    _persist_canvas()
     return {
         "success": True,
         "component_id": comp_id,
@@ -571,6 +589,7 @@ async def _canvas_add_wire(args: dict) -> dict:
         "to_pin": to_pin,
     }
     _canvas_state["wires"].append(wire)
+    _persist_canvas()
     return {
         "success": True,
         "wire_id": wire_id,
@@ -593,12 +612,14 @@ async def _canvas_remove(args: dict) -> dict:
                 w for w in _canvas_state["wires"]
                 if w["from_component"] != element_id and w["to_component"] != element_id
             ]
+            _persist_canvas()
             return {"success": True, "element_id": element_id, "element_type": "component", "message": f"Removed component '{element_id}' and its connected wires"}
 
     # Try removing from wires
     for i, wire in enumerate(_canvas_state["wires"]):
         if wire["id"] == element_id:
             _canvas_state["wires"].pop(i)
+            _persist_canvas()
             return {"success": True, "element_id": element_id, "element_type": "wire", "message": f"Removed wire '{element_id}'"}
 
     return {"success": False, "error": f"Element '{element_id}' not found"}
@@ -611,6 +632,7 @@ async def _canvas_get_state(_args: dict) -> dict:
 async def _editor_set_code(args: dict) -> dict:
     code = args.get("code", "")
     _editor_state["code"] = code
+    _persist_editor()
     return {"success": True, "code": code, "length": len(code)}
 
 
@@ -649,6 +671,7 @@ async def _io_mapping_set(args: dict) -> dict:
         "component_id": component_id,
         "port": port,
     }
+    _persist_io_mapping()
     return {"success": True, "channel": channel_name}
 
 
@@ -657,10 +680,23 @@ async def _io_mapping_get(_args: dict) -> dict:
 
 
 async def _compile_and_run(_args: dict) -> dict:
-    return {
-        "success": False,
-        "message": "QEMU simulation not yet connected. Code is ready for compilation.",
-    }
+    import httpx
+
+    code = _editor_state.get("code", "")
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                "http://localhost:8001/api/compile",
+                json={"code": code},
+            )
+            result = resp.json()
+        return result
+    except Exception as exc:
+        return {
+            "success": False,
+            "message": f"Compile request failed: {exc}",
+            "output": "",
+        }
 
 
 async def _simulation_stop(_args: dict) -> dict:
