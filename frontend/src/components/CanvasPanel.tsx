@@ -1,7 +1,7 @@
 import { useRef, useCallback, useState, useEffect } from 'react'
 import useAppStore from '../store/useAppStore'
 import type { CanvasComponent, CanvasWire } from '../store/useAppStore'
-import { Plus, Trash2, RotateCw, ZoomIn, ZoomOut, RotateCcw, Maximize } from 'lucide-react'
+import { Trash2, RotateCw, ZoomIn, ZoomOut, RotateCcw, Maximize } from 'lucide-react'
 import ComponentPropertyDialog from './ComponentPropertyDialog'
 
 // ---- Pin layout definitions ----
@@ -462,24 +462,6 @@ function WirePreview({ from, to }: { from: { x: number; y: number }; to: { x: nu
   )
 }
 
-// ---- Palette ----
-
-const PALETTE_ITEMS = [
-  { type: 'plc-cpu-f405', label: 'PLC CPU', color: '#1A237E' },
-  { type: 'button-no', label: 'Button NO', color: '#9E9E9E' },
-  { type: 'button-nc', label: 'Button NC', color: '#9E9E9E' },
-  { type: 'indicator-light', label: 'LED', color: '#4CAF50' },
-  { type: 'relay', label: 'Relay', color: '#FF9800' },
-  { type: 'motor-3phase', label: 'Motor 3~', color: '#1565C0' },
-  { type: 'emergency-stop', label: 'E-Stop', color: '#D32F2F' },
-  { type: 'resistor', label: 'Resistor', color: '#5C6BC0' },
-  { type: 'ground', label: 'GND', color: '#424242' },
-  { type: 'power-24v', label: '24V', color: '#D32F2F' },
-  { type: 'junction', label: 'Junction', color: '#424242' },
-] as const
-
-let nextCompId = 0
-
 // ---- Zoom / Pan constants ----
 const ZOOM_MIN = 0.2
 const ZOOM_MAX = 3
@@ -496,7 +478,6 @@ function screenToWorld(clientX: number, clientY: number, svgEl: SVGSVGElement, z
 export default function CanvasPanel() {
   const components = useAppStore((s) => s.components)
   const wires = useAppStore((s) => s.wires)
-  const recordAddComponent = useAppStore((s) => s.recordAddComponent)
   const recordAddWire = useAppStore((s) => s.recordAddWire)
   const recordRemoveComponent = useAppStore((s) => s.recordRemoveComponent)
   const recordMoveComponent = useAppStore((s) => s.recordMoveComponent)
@@ -641,13 +622,6 @@ export default function CanvasPanel() {
     return () => { window.removeEventListener('keydown', onKD); window.removeEventListener('keyup', onKU) }
   }, [endPan])
 
-  const handleAddComponent = useCallback((type: string) => {
-    const id = `comp-${++nextCompId}-${Date.now()}`
-    const svg = svgRef.current
-    let x = 150 + (nextCompId % 5) * 80, y = 80 + Math.floor(nextCompId / 5) * 100
-    if (svg) { const r = svg.getBoundingClientRect(); const ctr = screenToWorld(r.left + r.width / 2, r.top + r.height / 2, svg, zoomRef.current, panRef.current.x, panRef.current.y); const d = getComponentDef(type); x = Math.round((ctr.x - d.width / 2) / 5) * 5; y = Math.round((ctr.y - d.height / 2) / 5) * 5 }
-    recordAddComponent({ id, type, x, y })
-  }, [recordAddComponent])
 
   const handleMouseDown = useCallback((e: React.MouseEvent, compId: string) => {
     if (isPanningRef.current || spaceHeldRef.current) return
@@ -870,18 +844,6 @@ export default function CanvasPanel() {
   return (
     <div className="w-full h-full relative flex flex-col" style={{ background: '#FAFAFA' }}>
       <div className="flex items-center gap-1 px-2 py-1 border-b shrink-0" style={{ background: 'white', borderColor: '#E0E0E0' }}>
-        <span style={{ fontSize: 11, color: '#5F6368', fontWeight: 600, marginRight: 8, fontFamily: 'Inter, sans-serif' }}>Components</span>
-        {PALETTE_ITEMS.map((item) => (
-          <button key={item.type} onClick={() => handleAddComponent(item.type)}
-            className="flex items-center gap-1 px-2 py-0.5 rounded cursor-pointer"
-            style={{ fontSize: 10, color: '#424242', background: '#F5F5F5', border: '1px solid #E0E0E0', fontFamily: 'Inter, sans-serif', transition: 'background 0.15s' }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = '#EEEEEE')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = '#F5F5F5')}
-            title={`Add ${item.label}`}
-          >
-            <Plus size={10} color={item.color} />{item.label}
-          </button>
-        ))}
         {/* Zoom controls */}
         <div className="flex items-center gap-0.5 ml-auto" style={{ borderLeft: '1px solid #E0E0E0', paddingLeft: 6 }}>
           <button onClick={handleZoomOut} className="flex items-center justify-center rounded cursor-pointer" style={{ width: 22, height: 22, background: '#F5F5F5', border: '1px solid #E0E0E0', transition: 'background 0.15s' }} onMouseEnter={(e) => (e.currentTarget.style.background = '#EEEEEE')} onMouseLeave={(e) => (e.currentTarget.style.background = '#F5F5F5')} title="Zoom out (Ctrl+-)"><ZoomOut size={12} color="#5F6368" /></button>
