@@ -109,6 +109,19 @@ function getComponentDef(type: string): ComponentDef {
   }
 }
 
+/** Get pin position in local component coordinates (relative to component origin) */
+function getPinLocalPos(
+  pin: PinDef,
+  def: ComponentDef
+): { x: number; y: number } {
+  switch (pin.side) {
+    case 'left':   return { x: 0, y: pin.offset }
+    case 'right':  return { x: def.width, y: pin.offset }
+    case 'top':    return { x: pin.offset, y: 0 }
+    case 'bottom': return { x: pin.offset, y: def.height }
+  }
+}
+
 function getPinWorldPos(
   comp: CanvasComponent,
   pinName: string
@@ -116,27 +129,28 @@ function getPinWorldPos(
   const def = getComponentDef(comp.type)
   const pin = def.pins.find((p) => p.name === pinName)
   if (!pin) return null
-  let px = 0,
-    py = 0
+  const local = getPinLocalPos(pin, def)
+  // Offset pins slightly outside the component boundary for wire attachment
+  let ox = 0, oy = 0
   switch (pin.side) {
-    case 'left':
-      px = comp.x - 6
-      py = comp.y + pin.offset
-      break
-    case 'right':
-      px = comp.x + def.width + 6
-      py = comp.y + pin.offset
-      break
-    case 'top':
-      px = comp.x + pin.offset
-      py = comp.y - 6
-      break
-    case 'bottom':
-      px = comp.x + pin.offset
-      py = comp.y + def.height + 6
-      break
+    case 'left':   ox = -6; break
+    case 'right':  ox = 6;  break
+    case 'top':    oy = -6; break
+    case 'bottom': oy = 6;  break
   }
-  return { x: px, y: py }
+  return { x: comp.x + local.x + ox, y: comp.y + local.y + oy }
+}
+
+/** Compute label offset so tooltip appears outside the component */
+type TextAnchor = 'start' | 'middle' | 'end'
+
+function getPinLabelOffset(side: PinDef['side']): { dx: number; dy: number; anchor: TextAnchor } {
+  switch (side) {
+    case 'left':   return { dx: -14, dy: 3, anchor: 'end' }
+    case 'right':  return { dx: 14, dy: 3, anchor: 'start' }
+    case 'top':    return { dx: 0, dy: -12, anchor: 'middle' }
+    case 'bottom': return { dx: 0, dy: 16, anchor: 'middle' }
+  }
 }
 
 // ---- Individual SVG component renderers ----
@@ -462,7 +476,7 @@ function renderComponent(comp: CanvasComponent) {
   }
 }
 
-// ---- Wire renderer ----
+// ---- Wire renderer (orthogonal L-shaped path) ----
 
 function WirePath({
   wire,
@@ -479,17 +493,65 @@ function WirePath({
   const toPos = getPinWorldPos(toComp, wire.toPin)
   if (!fromPos || !toPos) return null
 
-  // Simple straight line for MVP
+  const midX = (fromPos.x + toPos.x) / 2
+  const d = `M ${fromPos.x} ${fromPos.y} L ${midX} ${fromPos.y} L ${midX} ${toPos.y} L ${toPos.x} ${toPos.y}`
+
   return (
-    <line
-      x1={fromPos.x}
-      y1={fromPos.y}
-      x2={toPos.x}
-      y2={toPos.y}
+    <path
+      d={d}
+      fill="none"
       stroke="#1565C0"
       strokeWidth={1.5}
       strokeLinecap="round"
+      strokeLinejoin="round"
     />
+  )
+}
+
+// ---- Preview wire (dashed orthogonal path with markers) ----
+
+function WirePreview({
+  from,
+  to,
+}: {
+  from: { x: number; y: number }
+  to: { x: number; y: number }
+}) {
+  const midX = (from.x + to.x) / 2
+  const d = `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`
+
+  return (
+    <g pointerEvents="none">
+      {/* Dashed preview path */}
+      <path
+        d={d}
+        fill="none"
+        stroke="#00BCD4"
+        strokeWidth={1.5}
+        strokeDasharray="6 4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Start pin marker */}
+      <circle
+        cx={from.x}
+        cy={from.y}
+        r={5}
+        fill="#00BCD4"
+        stroke="white"
+        strokeWidth={2}
+      />
+      {/* Cursor marker */}
+      <circle
+        cx={to.x}
+        cy={to.y}
+        r={4}
+        fill="none"
+        stroke="#00BCD4"
+        strokeWidth={1.5}
+        strokeDasharray="3 2"
+      />
+    </g>
   )
 }
 
@@ -528,6 +590,9 @@ export default function CanvasPanel() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
+  // --- Track which component the mouse is hovering over ---
+  const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null)
+
   // --- Bug C3: Track actual SVG container size for viewBox ---
   const [svgSize, setSvgSize] = useState({ w: 1600, h: 900 })
 
@@ -542,7 +607,7 @@ export default function CanvasPanel() {
     return () => ro.disconnect()
   }, [])
 
-  // --- Bug C4: Wire creation state ---
+  // --- Wire creation state ---
   const [wiringFrom, setWiringFrom] = useState<{
     componentId: string
     pin: string
@@ -580,8 +645,11 @@ export default function CanvasPanel() {
     [addCanvasComponent]
   )
 
+  // --- Component drag: skip if target is a pin circle (data-pin="true") ---
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, compId: string) => {
+      const target = e.target as SVGElement
+      if (target.dataset?.pin === 'true') return // let pin onClick handle it
       e.stopPropagation()
       const comp = components.find((c) => c.id === compId)
       if (!comp) return
@@ -630,12 +698,9 @@ export default function CanvasPanel() {
     }
   }, [selectedId, removeCanvasComponent])
 
-  // --- Bug C4: Pin click handler for wire creation ---
-  const handlePinMouseDown = useCallback(
-    (e: React.MouseEvent, componentId: string, pinName: string) => {
-      e.stopPropagation()
-      e.preventDefault()
-
+  // --- Pin click handler for wire creation (uses onClick, not onMouseDown) ---
+  const handlePinClick = useCallback(
+    (componentId: string, pinName: string) => {
       const comp = components.find((c) => c.id === componentId)
       if (!comp) return
 
@@ -677,7 +742,7 @@ export default function CanvasPanel() {
     [wiringFrom]
   )
 
-  // --- Bug H1: Keyboard handler for Delete and Escape ---
+  // --- Keyboard handler for Delete and Escape ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
@@ -687,14 +752,18 @@ export default function CanvasPanel() {
         handleDeleteSelected()
       }
       if (e.key === 'Escape') {
-        setSelectedId(null)
-        setWiringFrom(null)
-        setWiringMouse(null)
+        if (wiringFrom) {
+          // Cancel wiring first
+          setWiringFrom(null)
+          setWiringMouse(null)
+        } else {
+          setSelectedId(null)
+        }
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [selectedId, handleDeleteSelected])
+  }, [selectedId, wiringFrom, handleDeleteSelected])
 
   const isEmpty = components.length === 0
 
@@ -744,7 +813,7 @@ export default function CanvasPanel() {
             {item.label}
           </button>
         ))}
-        {selectedId && (
+        {selectedId && !wiringFrom && (
           <button
             onClick={handleDeleteSelected}
             className="flex items-center gap-1 px-2 py-0.5 rounded cursor-pointer ml-auto"
@@ -765,13 +834,17 @@ export default function CanvasPanel() {
           <span
             style={{
               fontSize: 10,
-              color: '#1565C0',
+              color: '#00838F',
               marginLeft: 'auto',
               fontFamily: 'Inter, sans-serif',
               fontWeight: 500,
+              background: '#E0F7FA',
+              padding: '2px 8px',
+              borderRadius: 4,
+              border: '1px solid #B2EBF2',
             }}
           >
-            Wiring: click target pin (Esc/right-click to cancel)
+            {'•'} {'點擊目標接點完成接線'} | ESC {'取消'}
           </span>
         )}
       </div>
@@ -819,7 +892,7 @@ export default function CanvasPanel() {
               fontFamily="Inter, sans-serif"
               fontWeight={400}
             >
-              拖拉元件到畫布上，或讓 AI 幫你配置線路圖
+              {'拖拉元件到畫布上，或讓 AI 幫你配置線路圖'}
             </text>
           )}
 
@@ -828,30 +901,27 @@ export default function CanvasPanel() {
             <WirePath key={w.id} wire={w} components={components} />
           ))}
 
-          {/* Temporary wiring preview line */}
+          {/* Wiring preview with orthogonal path + markers */}
           {wiringFrom && wiringMouse && (
-            <line
-              x1={wiringFrom.x}
-              y1={wiringFrom.y}
-              x2={wiringMouse.x}
-              y2={wiringMouse.y}
-              stroke="#1565C0"
-              strokeWidth={1.5}
-              strokeDasharray="6 3"
-              strokeLinecap="round"
-              pointerEvents="none"
-            />
+            <WirePreview from={wiringFrom} to={wiringMouse} />
           )}
 
           {/* Components */}
           {components.map((comp) => {
             const isSelected = selectedId === comp.id
+            const isHovered = hoveredComponentId === comp.id
             const def = getComponentDef(comp.type)
+
+            // Show pins when: component is hovered, selected, or wiring is in progress
+            const showPins = isHovered || isSelected || !!wiringFrom
+
             return (
               <g
                 key={comp.id}
                 transform={`translate(${comp.x}, ${comp.y})`}
                 onMouseDown={(e) => handleMouseDown(e, comp.id)}
+                onMouseEnter={() => setHoveredComponentId(comp.id)}
+                onMouseLeave={() => setHoveredComponentId(null)}
                 style={{ cursor: dragging?.id === comp.id ? 'grabbing' : 'grab' }}
               >
                 {/* Selection highlight */}
@@ -869,43 +939,80 @@ export default function CanvasPanel() {
                   />
                 )}
                 {renderComponent(comp)}
-                {/* Clickable pin targets for wire creation */}
-                {def.pins.map((pin) => {
-                  let px = 0, py = 0
-                  switch (pin.side) {
-                    case 'left':   px = 0;          py = pin.offset; break
-                    case 'right':  px = def.width;   py = pin.offset; break
-                    case 'top':    px = pin.offset;  py = 0;          break
-                    case 'bottom': px = pin.offset;  py = def.height; break
-                  }
+
+                {/* Interactive pin circles -- only shown on hover/select/wiring */}
+                {showPins && def.pins.map((pin) => {
+                  const local = getPinLocalPos(pin, def)
                   const isSource =
                     wiringFrom?.componentId === comp.id &&
                     wiringFrom?.pin === pin.name
-                  const isHovered =
+                  const isPinHovered =
                     hoveredPin?.componentId === comp.id &&
                     hoveredPin?.pin === pin.name
+                  // During wiring, target pins on OTHER components get green highlight
+                  const isWiringTarget =
+                    !!wiringFrom &&
+                    wiringFrom.componentId !== comp.id &&
+                    isPinHovered
+
+                  const radius = isSource || isPinHovered ? 10 : 8
+                  const fillColor = isSource
+                    ? '#0097A7'
+                    : isWiringTarget
+                    ? '#66BB6A'
+                    : isPinHovered
+                    ? '#26C6DA'
+                    : '#00BCD4'
+
+                  const labelInfo = getPinLabelOffset(pin.side)
+
                   return (
-                    <circle
-                      key={pin.name}
-                      cx={px}
-                      cy={py}
-                      r={isSource || isHovered ? 6 : 5}
-                      fill={
-                        isSource
-                          ? '#1565C0'
-                          : isHovered
-                          ? '#42A5F5'
-                          : 'transparent'
-                      }
-                      stroke="transparent"
-                      strokeWidth={0}
-                      style={{ cursor: 'crosshair' }}
-                      onMouseDown={(e) => handlePinMouseDown(e, comp.id, pin.name)}
-                      onMouseEnter={() =>
-                        setHoveredPin({ componentId: comp.id, pin: pin.name })
-                      }
-                      onMouseLeave={() => setHoveredPin(null)}
-                    />
+                    <g key={`pin-overlay-${pin.name}`}>
+                      {/* Visible, clickable pin circle */}
+                      <circle
+                        data-pin="true"
+                        cx={local.x}
+                        cy={local.y}
+                        r={radius}
+                        fill={fillColor}
+                        fillOpacity={0.85}
+                        stroke="white"
+                        strokeWidth={2}
+                        style={{ cursor: 'crosshair', transition: 'r 0.1s, fill 0.1s' }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handlePinClick(comp.id, pin.name)
+                        }}
+                        onMouseEnter={() =>
+                          setHoveredPin({ componentId: comp.id, pin: pin.name })
+                        }
+                        onMouseLeave={() => setHoveredPin(null)}
+                      />
+                      {/* Pin label tooltip on hover */}
+                      {isPinHovered && (
+                        <g pointerEvents="none">
+                          <rect
+                            x={local.x + labelInfo.dx - (labelInfo.anchor === 'middle' ? 16 : labelInfo.anchor === 'end' ? 32 : 0)}
+                            y={local.y + labelInfo.dy - 10}
+                            width={32}
+                            height={14}
+                            rx={3}
+                            fill="rgba(0,0,0,0.75)"
+                          />
+                          <text
+                            x={local.x + labelInfo.dx}
+                            y={local.y + labelInfo.dy}
+                            textAnchor={labelInfo.anchor}
+                            fill="white"
+                            fontSize={8}
+                            fontWeight={600}
+                            fontFamily="Inter, sans-serif"
+                          >
+                            {pin.name}
+                          </text>
+                        </g>
+                      )}
+                    </g>
                   )
                 })}
               </g>
