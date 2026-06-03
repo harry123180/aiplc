@@ -377,6 +377,10 @@ async def _canvas_add_component(args: dict) -> dict:
     return {
         "success": True,
         "component_id": comp_id,
+        "component_type": component_type,
+        "x": x,
+        "y": y,
+        "properties": properties,
         "message": f"Added {component_type} at ({x}, {y})",
     }
 
@@ -403,7 +407,14 @@ async def _canvas_add_wire(args: dict) -> dict:
         "to_pin": to_pin,
     }
     _canvas_state["wires"].append(wire)
-    return {"success": True, "wire_id": wire_id}
+    return {
+        "success": True,
+        "wire_id": wire_id,
+        "from_component": from_component,
+        "from_pin": from_pin,
+        "to_component": to_component,
+        "to_pin": to_pin,
+    }
 
 
 async def _canvas_remove(args: dict) -> dict:
@@ -418,13 +429,13 @@ async def _canvas_remove(args: dict) -> dict:
                 w for w in _canvas_state["wires"]
                 if w["from_component"] != element_id and w["to_component"] != element_id
             ]
-            return {"success": True, "message": f"Removed component '{element_id}' and its connected wires"}
+            return {"success": True, "element_id": element_id, "element_type": "component", "message": f"Removed component '{element_id}' and its connected wires"}
 
     # Try removing from wires
     for i, wire in enumerate(_canvas_state["wires"]):
         if wire["id"] == element_id:
             _canvas_state["wires"].pop(i)
-            return {"success": True, "message": f"Removed wire '{element_id}'"}
+            return {"success": True, "element_id": element_id, "element_type": "wire", "message": f"Removed wire '{element_id}'"}
 
     return {"success": False, "error": f"Element '{element_id}' not found"}
 
@@ -436,7 +447,7 @@ async def _canvas_get_state(_args: dict) -> dict:
 async def _editor_set_code(args: dict) -> dict:
     code = args.get("code", "")
     _editor_state["code"] = code
-    return {"success": True, "length": len(code)}
+    return {"success": True, "code": code, "length": len(code)}
 
 
 async def _editor_get_code(_args: dict) -> dict:

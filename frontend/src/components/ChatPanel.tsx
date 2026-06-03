@@ -3,6 +3,69 @@ import { Send, Loader2, ChevronDown, ChevronRight, Wrench, Bot, User } from 'luc
 import useAppStore from '../store/useAppStore'
 import type { ChatMessage } from '../store/useAppStore'
 
+/**
+ * Apply an MCP tool result to the Canvas/Editor Zustand store.
+ * Called when a `tool_result` SSE event arrives so that canvas operations
+ * made by the AI agent are reflected in the UI — not just shown as chat cards.
+ */
+function applyToolResult(toolName: string, result: Record<string, unknown>) {
+  if (!result || typeof result !== 'object') return
+
+  const store = useAppStore.getState()
+
+  switch (toolName) {
+    case 'canvas_add_component': {
+      if (result.success && result.component_id) {
+        store.addCanvasComponent({
+          id: result.component_id as string,
+          type: (result.component_type as string) || 'unknown',
+          x: (result.x as number) ?? 100,
+          y: (result.y as number) ?? 100,
+          properties: (result.properties as Record<string, unknown>) || {},
+        })
+      }
+      break
+    }
+    case 'canvas_add_wire': {
+      if (result.success && result.wire_id) {
+        store.addCanvasWire({
+          id: result.wire_id as string,
+          fromComponent: (result.from_component as string) || '',
+          fromPin: (result.from_pin as string) || '',
+          toComponent: (result.to_component as string) || '',
+          toPin: (result.to_pin as string) || '',
+        })
+      }
+      break
+    }
+    case 'canvas_remove': {
+      if (result.success && result.element_id) {
+        const elementId = result.element_id as string
+        if (result.element_type === 'wire') {
+          store.removeCanvasWire(elementId)
+        } else if (result.element_type === 'component') {
+          store.removeCanvasComponent(elementId)
+        } else {
+          // Fallback: try both
+          store.removeCanvasComponent(elementId)
+          store.removeCanvasWire(elementId)
+        }
+      }
+      break
+    }
+    case 'editor_set_code': {
+      if (result.success && typeof result.code === 'string') {
+        store.setCode(result.code)
+      }
+      break
+    }
+    default:
+      // Other tools (component_list, component_info, io_mapping_*, etc.)
+      // are read-only or don't need frontend state changes.
+      break
+  }
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const { toggleMessageCollapse } = useAppStore()
 
@@ -205,8 +268,11 @@ export default function ChatPanel() {
                 const result = JSON.parse(evt.data) as {
                   tool_call_id: string
                   name: string
-                  result: unknown
+                  result: Record<string, unknown>
                 }
+                // Apply the tool result to the Canvas/Editor store
+                applyToolResult(result.name, result.result)
+                // Also show it in the chat as a collapsible card
                 addMessage({
                   role: 'tool',
                   content: JSON.stringify(result.result, null, 2),
@@ -361,7 +427,7 @@ export default function ChatPanel() {
       {/* Input */}
       <div
         className="shrink-0 p-3 border-t"
-        style={{ borderColor: 'var(--color-border)' }}
+        style={{ borderColor: 'var(--color-border)', position: 'relative' }}
       >
         <div
           className="flex items-end gap-2 rounded-xl p-1"
@@ -381,7 +447,11 @@ export default function ChatPanel() {
             style={{
               color: 'var(--color-text)',
               fontFamily: "'Inter', sans-serif",
+              minHeight: '40px',
               maxHeight: '120px',
+              cursor: 'text',
+              position: 'relative',
+              zIndex: 1,
             }}
             onInput={(e) => {
               const el = e.currentTarget
