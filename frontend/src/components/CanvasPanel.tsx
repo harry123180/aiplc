@@ -1,7 +1,8 @@
-import { useRef, useCallback, useState, useEffect } from 'react'
+﻿import { useRef, useCallback, useState, useEffect } from 'react'
 import useAppStore from '../store/useAppStore'
 import type { CanvasComponent, CanvasWire } from '../store/useAppStore'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, RotateCw } from 'lucide-react'
+import ComponentPropertyDialog from './ComponentPropertyDialog'
 
 // ---- Pin layout definitions ----
 
@@ -158,6 +159,23 @@ function getPinLocalPos(
   }
 }
 
+/** Rotate a point (px, py) around center (cx, cy) by the given angle in degrees */
+function rotatePoint(
+  px: number,
+  py: number,
+  cx: number,
+  cy: number,
+  angleDeg: number
+): { x: number; y: number } {
+  const rad = (angleDeg * Math.PI) / 180
+  const dx = px - cx
+  const dy = py - cy
+  return {
+    x: cx + dx * Math.cos(rad) - dy * Math.sin(rad),
+    y: cy + dx * Math.sin(rad) + dy * Math.cos(rad),
+  }
+}
+
 function getPinWorldPos(
   comp: CanvasComponent,
   pinName: string
@@ -166,6 +184,8 @@ function getPinWorldPos(
   const pin = def.pins.find((p) => p.name === pinName)
   if (!pin) return null
   const local = getPinLocalPos(pin, def)
+  const rotation = ((comp.properties?.rotation as number) || 0)
+
   // Offset pins slightly outside the component boundary for wire attachment
   let ox = 0, oy = 0
   switch (pin.side) {
@@ -174,7 +194,16 @@ function getPinWorldPos(
     case 'top':    oy = -6; break
     case 'bottom': oy = 6;  break
   }
-  return { x: comp.x + local.x + ox, y: comp.y + local.y + oy }
+
+  if (rotation === 0) {
+    return { x: comp.x + local.x + ox, y: comp.y + local.y + oy }
+  }
+
+  // Rotate the pin local position (including offset) around component center
+  const cx = def.width / 2
+  const cy = def.height / 2
+  const rotated = rotatePoint(local.x + ox, local.y + oy, cx, cy, rotation)
+  return { x: comp.x + rotated.x, y: comp.y + rotated.y }
 }
 
 /** Compute label offset so tooltip appears outside the component */
@@ -618,11 +647,17 @@ function WirePath({
   wire,
   components,
   isHighlighted,
+  isSelected,
+  onSelect,
 }: {
   wire: CanvasWire
   components: CanvasComponent[]
   isHighlighted: boolean
+  isSelected: boolean
+  onSelect: (wireId: string) => void
 }) {
+  const [isHovered, setIsHovered] = useState(false)
+
   const fromComp = components.find((c) => c.id === wire.fromComponent)
   const toComp = components.find((c) => c.id === wire.toComponent)
   if (!fromComp || !toComp) return null
@@ -634,16 +669,45 @@ function WirePath({
   const midX = (fromPos.x + toPos.x) / 2
   const d = `M ${fromPos.x} ${fromPos.y} L ${midX} ${fromPos.y} L ${midX} ${toPos.y} L ${toPos.x} ${toPos.y}`
 
+  const strokeColor = isSelected
+    ? 'var(--color-blue, #4285F4)'
+    : isHighlighted
+    ? 'var(--color-red)'
+    : isHovered
+    ? '#1976D2'
+    : '#1565C0'
+
+  const strokeWidth = isSelected ? 3 : isHovered ? 2.5 : isHighlighted ? 2.5 : 1.5
+
   return (
-    <path
-      d={d}
-      fill="none"
-      stroke={isHighlighted ? 'var(--color-red)' : '#1565C0'}
-      strokeWidth={isHighlighted ? 2.5 : 1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={isHighlighted ? { animation: 'drc-pulse 1.5s ease-in-out infinite' } : undefined}
-    />
+    <g>
+      {/* Hit area - wider invisible stroke for easier clicking */}
+      <path
+        d={d}
+        stroke="transparent"
+        strokeWidth={12}
+        fill="none"
+        style={{ cursor: 'pointer' }}
+        onClick={(e) => {
+          e.stopPropagation()
+          onSelect(wire.id)
+        }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      />
+      {/* Visible wire */}
+      <path
+        d={d}
+        fill="none"
+        stroke={strokeColor}
+        strokeWidth={strokeWidth}
+        strokeDasharray={isSelected ? '8 4' : 'none'}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={isHighlighted ? { animation: 'drc-pulse 1.5s ease-in-out infinite' } : undefined}
+        pointerEvents="none"
+      />
+    </g>
   )
 }
 
@@ -717,10 +781,14 @@ let nextCompId = 0
 export default function CanvasPanel() {
   const components = useAppStore((s) => s.components)
   const wires = useAppStore((s) => s.wires)
-  const addCanvasComponent = useAppStore((s) => s.addCanvasComponent)
-  const addCanvasWire = useAppStore((s) => s.addCanvasWire)
-  const removeCanvasComponent = useAppStore((s) => s.removeCanvasComponent)
+  const recordAddComponent = useAppStore((s) => s.recordAddComponent)
+  const recordAddWire = useAppStore((s) => s.recordAddWire)
+  const recordRemoveComponent = useAppStore((s) => s.recordRemoveComponent)
+  const recordMoveComponent = useAppStore((s) => s.recordMoveComponent)
+  const recordRotateComponent = useAppStore((s) => s.recordRotateComponent)
+  const removeCanvasWire = useAppStore((s) => s.removeCanvasWire)
   const updateComponentPosition = useAppStore((s) => s.updateComponentPosition)
+  const updateComponentProperties = useAppStore((s) => s.updateComponentProperties)
   const highlightedComponentIds = useAppStore((s) => s.highlightedComponentIds)
   const highlightedWireIds = useAppStore((s) => s.highlightedWireIds)
 
@@ -732,8 +800,17 @@ export default function CanvasPanel() {
     offsetX: number
     offsetY: number
   } | null>(null)
+  const dragStartPos = useRef<{ id: string; x: number; y: number } | null>(null)
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedWireId, setSelectedWireId] = useState<string | null>(null)
+
+  // --- Property dialog state ---
+  const [editingComponent, setEditingComponent] = useState<{
+    id: string
+    screenX: number
+    screenY: number
+  } | null>(null)
 
   // --- Track which component the mouse is hovering over ---
   const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null)
@@ -785,9 +862,9 @@ export default function CanvasPanel() {
       // Place at a semi-random position within visible area
       const x = 150 + (nextCompId % 5) * 80
       const y = 80 + Math.floor(nextCompId / 5) * 100
-      addCanvasComponent({ id, type, x, y })
+      recordAddComponent({ id, type, x, y })
     },
-    [addCanvasComponent]
+    [recordAddComponent]
   )
 
   // --- Component drag: skip if target is a pin circle (data-pin="true") ---
@@ -799,12 +876,14 @@ export default function CanvasPanel() {
       const comp = components.find((c) => c.id === compId)
       if (!comp) return
       const svgCoord = toSvgCoords(e)
+      dragStartPos.current = { id: compId, x: comp.x, y: comp.y }
       setDragging({
         id: compId,
         offsetX: svgCoord.x - comp.x,
         offsetY: svgCoord.y - comp.y,
       })
       setSelectedId(compId)
+      setSelectedWireId(null)
     },
     [components, toSvgCoords]
   )
@@ -827,21 +906,45 @@ export default function CanvasPanel() {
   )
 
   const handleMouseUp = useCallback(() => {
+    if (dragging && dragStartPos.current && dragStartPos.current.id === dragging.id) {
+      const comp = components.find((c) => c.id === dragging.id)
+      if (comp) {
+        const { x: fromX, y: fromY } = dragStartPos.current
+        if (fromX !== comp.x || fromY !== comp.y) {
+          recordMoveComponent(dragging.id, fromX, fromY, comp.x, comp.y)
+        }
+      }
+      dragStartPos.current = null
+    }
     setDragging(null)
-  }, [])
+  }, [dragging, components, recordMoveComponent])
 
   const handleSvgClick = useCallback(() => {
     if (!dragging) {
       setSelectedId(null)
+      setSelectedWireId(null)
+      setEditingComponent(null)
     }
   }, [dragging])
 
   const handleDeleteSelected = useCallback(() => {
-    if (selectedId) {
-      removeCanvasComponent(selectedId)
+    if (selectedWireId) {
+      removeCanvasWire(selectedWireId)
+      setSelectedWireId(null)
+    } else if (selectedId) {
+      recordRemoveComponent(selectedId)
       setSelectedId(null)
     }
-  }, [selectedId, removeCanvasComponent])
+  }, [selectedId, selectedWireId, recordRemoveComponent, removeCanvasWire])
+
+  // --- Wire selection handler ---
+  const handleWireSelect = useCallback(
+    (wireId: string) => {
+      setSelectedWireId(wireId)
+      setSelectedId(null) // deselect any component
+    },
+    []
+  )
 
   // --- Pin click handler for wire creation (uses onClick, not onMouseDown) ---
   const handlePinClick = useCallback(
@@ -860,7 +963,7 @@ export default function CanvasPanel() {
         // Complete wiring to this pin (must be different component)
         if (wiringFrom.componentId !== componentId) {
           const wireId = `wire-${Date.now()}`
-          addCanvasWire({
+          recordAddWire({
             id: wireId,
             fromComponent: wiringFrom.componentId,
             fromPin: wiringFrom.pin,
@@ -872,7 +975,7 @@ export default function CanvasPanel() {
         setWiringMouse(null)
       }
     },
-    [components, wiringFrom, addCanvasWire]
+    [components, wiringFrom, recordAddWire]
   )
 
   // Cancel wiring on right-click
@@ -882,33 +985,48 @@ export default function CanvasPanel() {
         e.preventDefault()
         setWiringFrom(null)
         setWiringMouse(null)
+      } else if (selectedWireId) {
+        // Right-click on selected wire deletes it
+        e.preventDefault()
+        removeCanvasWire(selectedWireId)
+        setSelectedWireId(null)
       }
     },
-    [wiringFrom]
+    [wiringFrom, selectedWireId, removeCanvasWire]
   )
 
   // --- Keyboard handler for Delete and Escape ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedId || selectedWireId)) {
         // Don't delete if user is typing in an input/textarea
         const tag = (e.target as HTMLElement)?.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA') return
         handleDeleteSelected()
       }
       if (e.key === 'Escape') {
-        if (wiringFrom) {
+        if (editingComponent) {
+          // Close property dialog first
+          setEditingComponent(null)
+        } else if (wiringFrom) {
           // Cancel wiring first
           setWiringFrom(null)
           setWiringMouse(null)
         } else {
           setSelectedId(null)
+          setSelectedWireId(null)
         }
+      }
+      // Rotate selected component with 'R' key
+      if ((e.key === 'r' || e.key === 'R') && selectedId) {
+        const tag = (e.target as HTMLElement)?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return
+        recordRotateComponent(selectedId)
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [selectedId, wiringFrom, handleDeleteSelected])
+  }, [selectedId, selectedWireId, wiringFrom, editingComponent, handleDeleteSelected, recordRotateComponent])
 
   const isEmpty = components.length === 0
 
@@ -960,8 +1078,25 @@ export default function CanvasPanel() {
         ))}
         {selectedId && !wiringFrom && (
           <button
-            onClick={handleDeleteSelected}
+            onClick={() => recordRotateComponent(selectedId)}
             className="flex items-center gap-1 px-2 py-0.5 rounded cursor-pointer ml-auto"
+            style={{
+              fontSize: 10,
+              color: '#1565C0',
+              background: '#E3F2FD',
+              border: '1px solid #BBDEFB',
+              fontFamily: 'Inter, sans-serif',
+            }}
+            title="Rotate 90° (R)"
+          >
+            <RotateCw size={10} />
+            Rotate
+          </button>
+        )}
+        {(selectedId || selectedWireId) && !wiringFrom && (
+          <button
+            onClick={handleDeleteSelected}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded cursor-pointer${!selectedId ? ' ml-auto' : ''}`}
             style={{
               fontSize: 10,
               color: '#D32F2F',
@@ -969,7 +1104,7 @@ export default function CanvasPanel() {
               border: '1px solid #FFCDD2',
               fontFamily: 'Inter, sans-serif',
             }}
-            title="Delete selected component"
+            title={selectedWireId ? 'Delete selected wire' : 'Delete selected component'}
           >
             <Trash2 size={10} />
             Delete
@@ -1048,6 +1183,8 @@ export default function CanvasPanel() {
               wire={w}
               components={components}
               isHighlighted={highlightedWireIds.includes(w.id)}
+              isSelected={selectedWireId === w.id}
+              onSelect={handleWireSelect}
             />
           ))}
 
@@ -1061,6 +1198,9 @@ export default function CanvasPanel() {
             const isSelected = selectedId === comp.id
             const isHovered = hoveredComponentId === comp.id
             const def = getComponentDef(comp.type)
+            const rotation = ((comp.properties?.rotation as number) || 0)
+            const rcx = def.width / 2
+            const rcy = def.height / 2
 
             // Show pins when: component is hovered, selected, or wiring is in progress
             const showPins = isHovered || isSelected || !!wiringFrom
@@ -1070,44 +1210,95 @@ export default function CanvasPanel() {
                 key={comp.id}
                 transform={`translate(${comp.x}, ${comp.y})`}
                 onMouseDown={(e) => handleMouseDown(e, comp.id)}
+                onDoubleClick={(e) => {
+                  e.stopPropagation()
+                  e.preventDefault()
+                  setEditingComponent({ id: comp.id, screenX: e.clientX, screenY: e.clientY })
+                }}
+                onContextMenu={(e) => {
+                  if (!wiringFrom) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setEditingComponent({ id: comp.id, screenX: e.clientX, screenY: e.clientY })
+                  }
+                }}
                 onMouseEnter={() => setHoveredComponentId(comp.id)}
                 onMouseLeave={() => setHoveredComponentId(null)}
                 style={{ cursor: dragging?.id === comp.id ? 'grabbing' : 'grab' }}
               >
-                {/* Selection highlight */}
-                {isSelected && (
-                  <rect
-                    x={-4}
-                    y={-4}
-                    width={def.width + 8}
-                    height={def.height + 8}
-                    rx={6}
-                    fill="none"
-                    stroke="#4285F4"
-                    strokeWidth={2}
-                    strokeDasharray="4 2"
-                  />
-                )}
-                {/* DRC error highlight */}
-                {highlightedComponentIds.includes(comp.id) && (
-                  <rect
-                    x={-4}
-                    y={-4}
-                    width={def.width + 8}
-                    height={def.height + 8}
-                    fill="none"
-                    stroke="var(--color-red)"
-                    strokeWidth={2}
-                    strokeDasharray="6 3"
-                    rx={4}
-                    style={{ animation: 'drc-pulse 1.5s ease-in-out infinite' }}
-                  />
-                )}
-                {renderComponent(comp)}
+                {/* Rotated component visual */}
+                <g transform={rotation ? `rotate(${rotation}, ${rcx}, ${rcy})` : undefined}>
+                  {/* Selection highlight */}
+                  {isSelected && (
+                    <rect
+                      x={-4}
+                      y={-4}
+                      width={def.width + 8}
+                      height={def.height + 8}
+                      rx={6}
+                      fill="none"
+                      stroke="#4285F4"
+                      strokeWidth={2}
+                      strokeDasharray="4 2"
+                    />
+                  )}
+                  {/* DRC error highlight */}
+                  {highlightedComponentIds.includes(comp.id) && (
+                    <rect
+                      x={-4}
+                      y={-4}
+                      width={def.width + 8}
+                      height={def.height + 8}
+                      fill="none"
+                      stroke="var(--color-red)"
+                      strokeWidth={2}
+                      strokeDasharray="6 3"
+                      rx={4}
+                      style={{ animation: 'drc-pulse 1.5s ease-in-out infinite' }}
+                    />
+                  )}
+                  {renderComponent(comp)}
+                </g>
 
-                {/* Interactive pin circles -- only shown on hover/select/wiring */}
+                {/* Rotation indicator badge */}
+                {isSelected && rotation !== 0 && (
+                  <text
+                    x={rcx}
+                    y={-10}
+                    textAnchor="middle"
+                    fill="#1565C0"
+                    fontSize={8}
+                    fontWeight={600}
+                    fontFamily="Inter, sans-serif"
+                    pointerEvents="none"
+                  >
+                    {rotation}°
+                  </text>
+                )}
+
+                {/* Component label (if set) */}
+                {typeof comp.properties?.label === 'string' && comp.properties.label !== '' && (
+                  <text
+                    x={def.width / 2}
+                    y={def.height + 14}
+                    textAnchor="middle"
+                    fill="#555"
+                    fontSize={9}
+                    fontWeight={500}
+                    fontFamily="Inter, sans-serif"
+                    pointerEvents="none"
+                  >
+                    {comp.properties.label}
+                  </text>
+                )}
+
+                {/* Interactive pin circles -- positioned at rotated coordinates */}
                 {showPins && def.pins.map((pin) => {
                   const local = getPinLocalPos(pin, def)
+                  // Apply rotation to get the visual position of the pin overlay
+                  const rotatedLocal = rotation
+                    ? rotatePoint(local.x, local.y, rcx, rcy, rotation)
+                    : local
                   const isSource =
                     wiringFrom?.componentId === comp.id &&
                     wiringFrom?.pin === pin.name
@@ -1130,14 +1321,18 @@ export default function CanvasPanel() {
                     : '#00BCD4'
 
                   const labelInfo = getPinLabelOffset(pin.side)
+                  // Rotate label offset for rotated pins
+                  const rotLabelOff = rotation
+                    ? rotatePoint(labelInfo.dx, labelInfo.dy, 0, 0, rotation)
+                    : { x: labelInfo.dx, y: labelInfo.dy }
 
                   return (
                     <g key={`pin-overlay-${pin.name}`}>
                       {/* Visible, clickable pin circle */}
                       <circle
                         data-pin="true"
-                        cx={local.x}
-                        cy={local.y}
+                        cx={rotatedLocal.x}
+                        cy={rotatedLocal.y}
                         r={radius}
                         fill={fillColor}
                         fillOpacity={0.85}
@@ -1157,16 +1352,16 @@ export default function CanvasPanel() {
                       {isPinHovered && (
                         <g pointerEvents="none">
                           <rect
-                            x={local.x + labelInfo.dx - (labelInfo.anchor === 'middle' ? 16 : labelInfo.anchor === 'end' ? 32 : 0)}
-                            y={local.y + labelInfo.dy - 10}
+                            x={rotatedLocal.x + rotLabelOff.x - (labelInfo.anchor === 'middle' ? 16 : labelInfo.anchor === 'end' ? 32 : 0)}
+                            y={rotatedLocal.y + rotLabelOff.y - 10}
                             width={32}
                             height={14}
                             rx={3}
                             fill="rgba(0,0,0,0.75)"
                           />
                           <text
-                            x={local.x + labelInfo.dx}
-                            y={local.y + labelInfo.dy}
+                            x={rotatedLocal.x + rotLabelOff.x}
+                            y={rotatedLocal.y + rotLabelOff.y}
                             textAnchor={labelInfo.anchor}
                             fill="white"
                             fontSize={8}
@@ -1184,6 +1379,29 @@ export default function CanvasPanel() {
             )
           })}
         </svg>
+
+        {/* Component Property Dialog */}
+        {editingComponent && (() => {
+          const comp = components.find((c) => c.id === editingComponent.id)
+          if (!comp) return null
+          return (
+            <ComponentPropertyDialog
+              componentId={comp.id}
+              componentType={comp.type}
+              properties={comp.properties || {}}
+              position={{ x: editingComponent.screenX, y: editingComponent.screenY }}
+              onClose={() => setEditingComponent(null)}
+              onUpdate={(key, value) => {
+                updateComponentProperties(comp.id, { [key]: value })
+              }}
+              onDelete={() => {
+                recordRemoveComponent(comp.id)
+                setEditingComponent(null)
+                setSelectedId(null)
+              }}
+            />
+          )
+        })()}
       </div>
     </div>
   )

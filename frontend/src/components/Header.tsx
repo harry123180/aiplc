@@ -1,4 +1,5 @@
-import { Settings, Play, Square, Shield, MessageSquare } from 'lucide-react'
+import { useEffect } from 'react'
+import { Settings, Play, Square, Shield, MessageSquare, Undo2, Redo2 } from 'lucide-react'
 import useAppStore from '../store/useAppStore'
 import { runDrc } from '../utils/circuitVerifier'
 import DrcVerificationModal from './DrcVerificationModal'
@@ -15,7 +16,32 @@ export default function Header() {
     isChatOpen,
     setChatOpen,
     clearHighlights,
+    undoStack,
+    redoStack,
   } = useAppStore()
+
+  const canUndoNow = undoStack.length > 0
+  const canRedoNow = redoStack.length > 0
+
+  // Global keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if user is typing in an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        useAppStore.getState().undo()
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'Z' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault()
+        useAppStore.getState().redo()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   // Count DRC errors/warnings for badge indicator
   const drcErrors = drcResults?.issues.filter((i) => i.severity === 'error').length ?? 0
@@ -84,6 +110,54 @@ export default function Header() {
 
         {/* Actions */}
         <div className="flex items-center gap-2">
+          {/* Undo / Redo */}
+          <button
+            onClick={() => useAppStore.getState().undo()}
+            disabled={!canUndoNow}
+            className="flex items-center justify-center w-8 h-8 rounded-lg
+                       transition-colors cursor-pointer border"
+            style={{
+              color: canUndoNow ? 'var(--color-text-secondary)' : '#BDBDBD',
+              borderColor: 'var(--color-border)',
+              background: 'var(--color-bg)',
+              cursor: canUndoNow ? 'pointer' : 'default',
+              opacity: canUndoNow ? 1 : 0.5,
+            }}
+            onMouseEnter={(e) => {
+              if (canUndoNow) e.currentTarget.style.background = 'var(--color-surface)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--color-bg)'
+            }}
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo2 size={16} />
+          </button>
+          <button
+            onClick={() => useAppStore.getState().redo()}
+            disabled={!canRedoNow}
+            className="flex items-center justify-center w-8 h-8 rounded-lg
+                       transition-colors cursor-pointer border"
+            style={{
+              color: canRedoNow ? 'var(--color-text-secondary)' : '#BDBDBD',
+              borderColor: 'var(--color-border)',
+              background: 'var(--color-bg)',
+              cursor: canRedoNow ? 'pointer' : 'default',
+              opacity: canRedoNow ? 1 : 0.5,
+            }}
+            onMouseEnter={(e) => {
+              if (canRedoNow) e.currentTarget.style.background = 'var(--color-surface)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--color-bg)'
+            }}
+            title="Redo (Ctrl+Shift+Z)"
+          >
+            <Redo2 size={16} />
+          </button>
+
+          <div style={{ width: 1, height: 20, background: 'var(--color-border)' }} />
+
           <button
             onClick={() => setMcpModalOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg
