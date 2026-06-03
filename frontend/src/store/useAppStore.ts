@@ -12,18 +12,20 @@ export interface ChatMessage {
   timestamp: number
 }
 
-export interface PlcComponent {
+export interface CanvasComponent {
   id: string
-  type: string
+  type: string  // 'plc-cpu-f405', 'button-no', 'button-nc', 'indicator-light', 'relay', 'motor-3phase', 'emergency-stop'
   x: number
   y: number
-  label: string
+  properties?: Record<string, unknown>
 }
 
-export interface Wire {
+export interface CanvasWire {
   id: string
-  from: string
-  to: string
+  fromComponent: string
+  fromPin: string
+  toComponent: string
+  toPin: string
 }
 
 export interface McpSettings {
@@ -43,16 +45,26 @@ interface AppState {
   clearMessages: () => void
 
   // Canvas
-  components: PlcComponent[]
-  setComponents: (components: PlcComponent[]) => void
-  wires: Wire[]
-  setWires: (wires: Wire[]) => void
+  components: CanvasComponent[]
+  setComponents: (components: CanvasComponent[]) => void
+  addCanvasComponent: (comp: CanvasComponent) => void
+  removeCanvasComponent: (id: string) => void
+  updateComponentPosition: (id: string, x: number, y: number) => void
+  wires: CanvasWire[]
+  setWires: (wires: CanvasWire[]) => void
+  addCanvasWire: (wire: CanvasWire) => void
+  removeCanvasWire: (id: string) => void
 
   // MCP Settings
   mcpSettings: McpSettings
   setMcpSettings: (settings: McpSettings) => void
   isMcpModalOpen: boolean
   setMcpModalOpen: (open: boolean) => void
+
+  // Streaming
+  isStreaming: boolean
+  setStreaming: (v: boolean) => void
+  updateLastAssistantMessage: (content: string) => void
 
   // Simulation
   isSimulating: boolean
@@ -124,14 +136,48 @@ void PLC_Scan() {
   // Canvas
   components: [],
   setComponents: (components) => set({ components }),
+  addCanvasComponent: (comp) =>
+    set((state) => ({ components: [...state.components, comp] })),
+  removeCanvasComponent: (id) =>
+    set((state) => ({
+      components: state.components.filter((c) => c.id !== id),
+      wires: state.wires.filter(
+        (w) => w.fromComponent !== id && w.toComponent !== id
+      ),
+    })),
+  updateComponentPosition: (id, x, y) =>
+    set((state) => ({
+      components: state.components.map((c) =>
+        c.id === id ? { ...c, x, y } : c
+      ),
+    })),
   wires: [],
   setWires: (wires) => set({ wires }),
+  addCanvasWire: (wire) =>
+    set((state) => ({ wires: [...state.wires, wire] })),
+  removeCanvasWire: (id) =>
+    set((state) => ({ wires: state.wires.filter((w) => w.id !== id) })),
 
   // MCP Settings
   mcpSettings: { serverUrl: 'http://localhost:3000', apiKey: '' },
   setMcpSettings: (mcpSettings) => set({ mcpSettings }),
   isMcpModalOpen: false,
   setMcpModalOpen: (isMcpModalOpen) => set({ isMcpModalOpen }),
+
+  // Streaming
+  isStreaming: false,
+  setStreaming: (isStreaming) => set({ isStreaming }),
+  updateLastAssistantMessage: (content) =>
+    set((state) => {
+      const msgs = [...state.messages]
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === 'assistant') {
+          msgs[i] = { ...msgs[i], content: msgs[i].content + content }
+          break
+        }
+      }
+      return { messages: msgs }
+    }),
 
   // Simulation
   isSimulating: false,

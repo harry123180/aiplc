@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
-import { Send, ChevronDown, ChevronRight, Wrench, Bot, User } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { Send, Loader2, ChevronDown, ChevronRight, Wrench, Bot, User } from 'lucide-react'
 import useAppStore from '../store/useAppStore'
 import type { ChatMessage } from '../store/useAppStore'
 
@@ -88,31 +88,175 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   )
 }
 
+/** Parse a raw SSE chunk into individual events. */
+function parseSSE(raw: string): Array<{ event: string; data: string }> {
+  const events: Array<{ event: string; data: string }> = []
+  const blocks = raw.split(/\n\n/)
+  for (const block of blocks) {
+    if (!block.trim()) continue
+    let event = 'message'
+    let data = ''
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim()
+      else if (line.startsWith('data:')) data = line.slice(5).trim()
+    }
+    if (data) events.push({ event, data })
+  }
+  return events
+}
+
 export default function ChatPanel() {
   const [input, setInput] = useState('')
-  const { messages, addMessage } = useAppStore()
+  const {
+    messages,
+    addMessage,
+    updateLastAssistantMessage,
+    isStreaming,
+    setStreaming,
+    components,
+    wires,
+    code,
+  } = useAppStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleSend = () => {
+  const handleSend = useCallback(async () => {
     const text = input.trim()
-    if (!text) return
+    if (!text || isStreaming) return
 
     addMessage({ role: 'user', content: text })
     setInput('')
 
-    // Simulate assistant response
-    setTimeout(() => {
-      addMessage({
-        role: 'assistant',
-        content:
-          'I can help you with your PLC program. What would you like to do?',
+    // Build message history for the API (only user/assistant roles)
+    const history = [
+      ...useAppStore.getState().messages
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({ role: m.role, content: m.content })),
+    ]
+
+    // Add empty assistant message that we will stream into
+    addMessage({ role: 'assistant', content: '' })
+    setStreaming(true)
+
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    try {
+      const response = await fetch('/api/agent/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: history,
+          canvas_state: {
+            components,
+            wires,
+            code,
+          },
+        }),
+        signal: controller.signal,
       })
-    }, 600)
-  }
+
+      if (!response.ok) {
+        const errText = await response.text()
+        updateLastAssistantMessage(`Error: ${response.status} - ${errText}`)
+        setStreaming(false)
+        return
+      }
+
+      const reader = response.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+
+        // Process complete SSE blocks (separated by double newline)
+        const lastDoubleNewline = buffer.lastIndexOf('\n\n')
+        if (lastDoubleNewline === -1) continue
+
+        const complete = buffer.slice(0, lastDoubleNewline + 2)
+        buffer = buffer.slice(lastDoubleNewline + 2)
+
+        const events = parseSSE(complete)
+        for (const evt of events) {
+          switch (evt.event) {
+            case 'content': {
+              const parsed = JSON.parse(evt.data) as { content: string }
+              updateLastAssistantMessage(parsed.content)
+              break
+            }
+            case 'tool_calls': {
+              const calls = JSON.parse(evt.data) as Array<{
+                id: string
+                function: { name: string; arguments: string }
+              }>
+              for (const call of calls) {
+                addMessage({
+                  role: 'tool',
+                  content: call.function.arguments,
+                  toolName: `Calling: ${call.function.name}`,
+                  toolCallId: call.id,
+                  isCollapsed: false,
+                })
+              }
+              break
+            }
+            case 'tool_result': {
+              const result = JSON.parse(evt.data) as {
+                tool_call_id: string
+                name: string
+                result: unknown
+              }
+              addMessage({
+                role: 'tool',
+                content: JSON.stringify(result.result, null, 2),
+                toolName: `Result: ${result.name}`,
+                toolCallId: result.tool_call_id,
+                isCollapsed: true,
+              })
+              break
+            }
+            case 'error': {
+              const err = JSON.parse(evt.data) as { error: string }
+              updateLastAssistantMessage(`\n\nError: ${err.error}`)
+              break
+            }
+            case 'done': {
+              // Streaming complete
+              break
+            }
+          }
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        updateLastAssistantMessage('\n\n(cancelled)')
+      } else {
+        updateLastAssistantMessage(
+          `\n\nConnection error: ${err instanceof Error ? err.message : String(err)}`
+        )
+      }
+    } finally {
+      setStreaming(false)
+      abortRef.current = null
+    }
+  }, [
+    input,
+    isStreaming,
+    addMessage,
+    updateLastAssistantMessage,
+    setStreaming,
+    components,
+    wires,
+    code,
+  ])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -120,6 +264,8 @@ export default function ChatPanel() {
       handleSend()
     }
   }
+
+  const sendDisabled = isStreaming || !input.trim()
 
   return (
     <div className="flex flex-col h-full">
@@ -164,6 +310,18 @@ export default function ChatPanel() {
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
+
+        {isStreaming && (
+          <div className="flex justify-start mb-3">
+            <div className="flex items-center gap-2 px-3 py-2 text-xs"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              <Loader2 size={14} className="animate-spin" />
+              <span>AI is thinking...</span>
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -183,8 +341,9 @@ export default function ChatPanel() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
+            placeholder="輸入訊息..."
             rows={1}
+            disabled={isStreaming}
             className="flex-1 resize-none bg-transparent border-none outline-none px-3 py-2 text-sm"
             style={{
               color: 'var(--color-text)',
@@ -199,15 +358,19 @@ export default function ChatPanel() {
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim()}
+            disabled={sendDisabled}
             className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center
                        transition-colors cursor-pointer border-none"
             style={{
-              background: input.trim() ? 'var(--color-blue)' : 'var(--color-border)',
-              opacity: input.trim() ? 1 : 0.5,
+              background: sendDisabled ? 'var(--color-border)' : 'var(--color-blue)',
+              opacity: sendDisabled ? 0.5 : 1,
             }}
           >
-            <Send size={14} style={{ color: '#FFFFFF' }} />
+            {isStreaming ? (
+              <Loader2 size={14} className="animate-spin" style={{ color: '#FFFFFF' }} />
+            ) : (
+              <Send size={14} style={{ color: '#FFFFFF' }} />
+            )}
           </button>
         </div>
       </div>

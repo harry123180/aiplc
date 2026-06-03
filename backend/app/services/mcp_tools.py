@@ -1,6 +1,35 @@
 """MCP tool definitions and handlers for AIPLC canvas/editor operations."""
 
+import copy
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# In-memory state — mirrors what the frontend canvas/editor would hold.
+# Persists for the lifetime of the server process.
+# ---------------------------------------------------------------------------
+
+_canvas_state: dict[str, list] = {
+    "components": [],  # list of {id, type, x, y, properties}
+    "wires": [],       # list of {id, from_component, from_pin, to_component, to_pin}
+}
+
+_editor_state: dict[str, str] = {
+    "code": (
+        '#include "aiplc.h"\n'
+        "\n"
+        "void PLC_Init() {\n"
+        '    Serial_Print("AIPLC Ready\\n");\n'
+        "}\n"
+        "\n"
+        "void PLC_Scan() {\n"
+        "    // Your control logic here\n"
+        "}\n"
+    ),
+}
+
+_io_mapping: dict[str, dict] = {}  # {channel_name: mapping_info}
+
+_next_id: int = 1
 
 # ---------------------------------------------------------------------------
 # Tool registry — 12 tools from the MVP spec
@@ -237,164 +266,230 @@ async def execute_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     return await handler(arguments)
 
 
-# --- Individual placeholder handlers ---
+# ---------------------------------------------------------------------------
+# Component library — hardcoded catalogue of available PLC components
+# ---------------------------------------------------------------------------
+
+_COMPONENT_LIBRARY: dict[str, dict] = {
+    "plc-cpu-f405": {
+        "type": "plc-cpu-f405",
+        "name": "PLC CPU Module (STM32F405)",
+        "category": "cpu",
+        "description": "Main PLC processor module based on STM32F405. Provides digital and analog I/O channels.",
+        "pins": ["DI0", "DI1", "DI2", "DI3", "DI4", "DI5", "DI6", "DI7",
+                 "DO0", "DO1", "DO2", "DO3", "DO4", "DO5", "DO6", "DO7",
+                 "AI0", "AI1", "AI2", "AI3", "AO0", "AO1", "VCC", "GND"],
+    },
+    "button-no": {
+        "type": "button-no",
+        "name": "Push Button (Normally Open)",
+        "category": "input",
+        "description": "Momentary push button with normally-open contact. Closes circuit when pressed.",
+        "pins": ["COM", "NO"],
+    },
+    "button-nc": {
+        "type": "button-nc",
+        "name": "Push Button (Normally Closed)",
+        "category": "input",
+        "description": "Momentary push button with normally-closed contact. Opens circuit when pressed.",
+        "pins": ["COM", "NC"],
+    },
+    "indicator-light": {
+        "type": "indicator-light",
+        "name": "Indicator Light",
+        "category": "output",
+        "description": "Panel-mount indicator light (24V DC). Available in red, yellow, and green.",
+        "pins": ["A", "K"],
+        "properties": {"color": {"options": ["red", "yellow", "green"], "default": "red"}},
+    },
+    "relay": {
+        "type": "relay",
+        "name": "Relay",
+        "category": "output",
+        "description": "Electromechanical relay with coil drive and SPDT output contacts.",
+        "pins": ["COIL+", "COIL-", "COM", "NO", "NC"],
+    },
+    "contactor-3phase": {
+        "type": "contactor-3phase",
+        "name": "3-Phase Contactor",
+        "category": "output",
+        "description": "3-phase power contactor for switching motors and heavy loads.",
+        "pins": ["COIL+", "COIL-", "L1", "L2", "L3", "T1", "T2", "T3"],
+    },
+    "motor-3phase": {
+        "type": "motor-3phase",
+        "name": "3-Phase Motor",
+        "category": "output",
+        "description": "3-phase AC induction motor.",
+        "pins": ["U", "V", "W"],
+    },
+    "thermal-overload": {
+        "type": "thermal-overload",
+        "name": "Thermal Overload Relay",
+        "category": "protection",
+        "description": "Bimetallic thermal overload relay for motor overcurrent protection.",
+        "pins": ["L1", "L2", "L3", "T1", "T2", "T3", "NC", "NO"],
+    },
+    "emergency-stop": {
+        "type": "emergency-stop",
+        "name": "Emergency Stop Button",
+        "category": "input",
+        "description": "Mushroom-head emergency stop button with dual NC contacts. Latching — requires twist to release.",
+        "pins": ["NC1", "NC2"],
+    },
+    "proximity-pnp": {
+        "type": "proximity-pnp",
+        "name": "PNP Proximity Sensor",
+        "category": "sensor",
+        "description": "Inductive proximity sensor with PNP (sourcing) output. Detects metallic objects.",
+        "pins": ["+V", "OUT", "GND"],
+    },
+}
+
+
+# --- Helper ----------------------------------------------------------------
+
+def _gen_id(prefix: str) -> str:
+    """Generate a unique ID like comp_1, wire_2, etc."""
+    global _next_id
+    uid = f"{prefix}_{_next_id}"
+    _next_id += 1
+    return uid
+
+
+# --- Individual handlers ---------------------------------------------------
 
 async def _canvas_add_component(args: dict) -> dict:
+    component_type = args.get("component_type", "unknown")
+    x = args.get("x", 0)
+    y = args.get("y", 0)
+    properties = args.get("properties") or {}
+
+    comp_id = _gen_id("comp")
+    component = {
+        "id": comp_id,
+        "type": component_type,
+        "x": x,
+        "y": y,
+        "properties": properties,
+    }
+    _canvas_state["components"].append(component)
     return {
-        "status": "ok",
-        "action": "canvas_add_component",
-        "component_id": f"comp-{id(args) % 100000:05d}",
-        "component_type": args.get("component_type"),
-        "position": {"x": args.get("x"), "y": args.get("y")},
+        "success": True,
+        "component_id": comp_id,
+        "message": f"Added {component_type} at ({x}, {y})",
     }
 
 
 async def _canvas_add_wire(args: dict) -> dict:
-    return {
-        "status": "ok",
-        "action": "canvas_add_wire",
-        "wire_id": f"wire-{id(args) % 100000:05d}",
-        "from": f"{args.get('from_component_id')}:{args.get('from_port')}",
-        "to": f"{args.get('to_component_id')}:{args.get('to_port')}",
+    from_component = args.get("from_component_id", "")
+    from_pin = args.get("from_port", "")
+    to_component = args.get("to_component_id", "")
+    to_pin = args.get("to_port", "")
+
+    # Validate that both referenced components exist
+    comp_ids = {c["id"] for c in _canvas_state["components"]}
+    if from_component not in comp_ids:
+        return {"success": False, "error": f"Component '{from_component}' not found on canvas"}
+    if to_component not in comp_ids:
+        return {"success": False, "error": f"Component '{to_component}' not found on canvas"}
+
+    wire_id = _gen_id("wire")
+    wire = {
+        "id": wire_id,
+        "from_component": from_component,
+        "from_pin": from_pin,
+        "to_component": to_component,
+        "to_pin": to_pin,
     }
+    _canvas_state["wires"].append(wire)
+    return {"success": True, "wire_id": wire_id}
 
 
 async def _canvas_remove(args: dict) -> dict:
-    return {
-        "status": "ok",
-        "action": "canvas_remove",
-        "element_id": args.get("element_id"),
-    }
+    element_id = args.get("element_id", "")
+
+    # Try removing from components
+    for i, comp in enumerate(_canvas_state["components"]):
+        if comp["id"] == element_id:
+            _canvas_state["components"].pop(i)
+            # Also remove any wires connected to this component
+            _canvas_state["wires"] = [
+                w for w in _canvas_state["wires"]
+                if w["from_component"] != element_id and w["to_component"] != element_id
+            ]
+            return {"success": True, "message": f"Removed component '{element_id}' and its connected wires"}
+
+    # Try removing from wires
+    for i, wire in enumerate(_canvas_state["wires"]):
+        if wire["id"] == element_id:
+            _canvas_state["wires"].pop(i)
+            return {"success": True, "message": f"Removed wire '{element_id}'"}
+
+    return {"success": False, "error": f"Element '{element_id}' not found"}
 
 
 async def _canvas_get_state(_args: dict) -> dict:
-    return {
-        "status": "ok",
-        "action": "canvas_get_state",
-        "components": [],
-        "wires": [],
-    }
+    return copy.deepcopy(_canvas_state)
 
 
 async def _editor_set_code(args: dict) -> dict:
     code = args.get("code", "")
-    return {
-        "status": "ok",
-        "action": "editor_set_code",
-        "lines": code.count("\n") + 1,
-    }
+    _editor_state["code"] = code
+    return {"success": True, "length": len(code)}
 
 
 async def _editor_get_code(_args: dict) -> dict:
-    return {
-        "status": "ok",
-        "action": "editor_get_code",
-        "code": "// No code loaded yet\n",
-    }
+    return {"code": _editor_state["code"]}
 
 
 async def _component_list(args: dict) -> dict:
-    components = {
-        "cpu": [
-            {"type": "plc-cpu-f405", "name": "STM32F405 PLC CPU", "di": 16, "do": 16, "ai": 8, "ao": 4},
-        ],
-        "input": [
-            {"type": "button-no", "name": "Push Button (NO)"},
-            {"type": "button-nc", "name": "Push Button (NC)"},
-            {"type": "switch-toggle", "name": "Toggle Switch"},
-            {"type": "e-stop", "name": "Emergency Stop (NC)"},
-        ],
-        "output": [
-            {"type": "indicator-light", "name": "Indicator Light"},
-            {"type": "relay", "name": "Relay Module"},
-            {"type": "motor", "name": "AC Motor"},
-            {"type": "contactor", "name": "Contactor"},
-        ],
-        "sensor": [
-            {"type": "sensor-proximity", "name": "Proximity Sensor"},
-            {"type": "sensor-temperature", "name": "Temperature Sensor (4-20mA)"},
-            {"type": "sensor-pressure", "name": "Pressure Sensor (0-10V)"},
-        ],
-        "power": [
-            {"type": "power-supply", "name": "24V DC Power Supply"},
-            {"type": "terminal-block", "name": "Terminal Block"},
-        ],
-        "protection": [
-            {"type": "fuse", "name": "Fuse"},
-            {"type": "circuit-breaker", "name": "Circuit Breaker"},
-            {"type": "overload-relay", "name": "Thermal Overload Relay"},
-        ],
-    }
     category = args.get("category")
-    if category and category in components:
-        return {"status": "ok", "components": {category: components[category]}}
-    return {"status": "ok", "components": components}
+    if category:
+        filtered = [
+            info for info in _COMPONENT_LIBRARY.values()
+            if info.get("category") == category
+        ]
+        return {"components": filtered}
+    return {"components": list(_COMPONENT_LIBRARY.values())}
 
 
 async def _component_info(args: dict) -> dict:
-    info_db: dict[str, dict] = {
-        "plc-cpu-f405": {
-            "type": "plc-cpu-f405",
-            "name": "STM32F405 PLC CPU",
-            "description": "Main PLC processor with 16 DI, 16 DO, 8 AI, 4 AO",
-            "ports": {
-                "DI0-DI15": "Digital inputs (24V sink/source)",
-                "DO0-DO15": "Digital outputs (relay/transistor)",
-                "AI0-AI7": "Analog inputs (0-10V / 4-20mA)",
-                "AO0-AO3": "Analog outputs (0-10V)",
-                "COM": "Common ground",
-                "V+": "24V supply input",
-                "RS485-A": "Modbus RS485 A",
-                "RS485-B": "Modbus RS485 B",
-            },
-        },
-        "button-no": {
-            "type": "button-no",
-            "name": "Push Button (Normally Open)",
-            "description": "Momentary push button, normally open contact",
-            "ports": {"COM": "Common", "NO": "Normally Open"},
-        },
-        "indicator-light": {
-            "type": "indicator-light",
-            "name": "Indicator Light",
-            "description": "Panel indicator light (24V DC)",
-            "ports": {"A+": "Anode (+24V)", "K-": "Cathode (GND)"},
-        },
-    }
-    ctype = args.get("component_type", "")
-    if ctype in info_db:
-        return {"status": "ok", "info": info_db[ctype]}
-    return {"status": "ok", "info": {"type": ctype, "name": ctype, "ports": {}}}
+    component_type = args.get("component_type", "")
+    if component_type in _COMPONENT_LIBRARY:
+        return {"found": True, "info": copy.deepcopy(_COMPONENT_LIBRARY[component_type])}
+    return {"found": False, "error": f"Unknown component type: '{component_type}'"}
 
 
 async def _io_mapping_set(args: dict) -> dict:
-    return {
-        "status": "ok",
-        "action": "io_mapping_set",
-        "mapping": {
-            "io_type": args.get("io_type"),
-            "channel": args.get("channel"),
-            "component_id": args.get("component_id"),
-            "port": args.get("port"),
-        },
+    io_type = args.get("io_type", "")
+    channel = args.get("channel", 0)
+    component_id = args.get("component_id", "")
+    port = args.get("port", "")
+
+    channel_name = f"{io_type}{channel}"
+    _io_mapping[channel_name] = {
+        "io_type": io_type,
+        "channel": channel,
+        "component_id": component_id,
+        "port": port,
     }
+    return {"success": True, "channel": channel_name}
 
 
 async def _io_mapping_get(_args: dict) -> dict:
-    return {"status": "ok", "action": "io_mapping_get", "mappings": []}
+    return copy.deepcopy(_io_mapping)
 
 
-async def _compile_and_run(args: dict) -> dict:
+async def _compile_and_run(_args: dict) -> dict:
     return {
-        "status": "pending",
-        "action": "compile_and_run",
-        "message": "Compilation service not yet available — placeholder",
-        "optimization": args.get("optimization", "-O0"),
+        "success": False,
+        "message": "QEMU simulation not yet connected. Code is ready for compilation.",
     }
 
 
 async def _simulation_stop(_args: dict) -> dict:
-    return {"status": "ok", "action": "simulation_stop", "message": "Simulation stopped"}
+    return {"success": True, "message": "Simulation stopped"}
 
 
 _HANDLERS = {
