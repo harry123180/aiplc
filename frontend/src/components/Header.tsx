@@ -47,21 +47,21 @@ export default function Header() {
   const drcErrors = drcResults?.issues.filter((i) => i.severity === 'error').length ?? 0
   const drcWarnings = drcResults?.issues.filter((i) => i.severity === 'warning').length ?? 0
 
-  const handleDrcCheck = () => {
+  const handleDrcCheck = async () => {
     const { components, wires, code } = useAppStore.getState()
-    const result = runDrc(components, wires, code)
+    const result = await runDrc(components, wires, code)
     setDrcResults(result)
     setDrcModalOpen(true)
   }
 
-  const handleRun = () => {
+  const handleRun = async () => {
     if (isSimulating) {
       setIsSimulating(false)
       return
     }
     // Run DRC first
     const { components, wires, code } = useAppStore.getState()
-    const result = runDrc(components, wires, code)
+    const result = await runDrc(components, wires, code)
     setDrcResults(result)
     if (!result.passed) {
       setDrcModalOpen(true) // show modal, block run

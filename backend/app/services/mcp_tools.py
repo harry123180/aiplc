@@ -253,6 +253,15 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {},
         },
     },
+    # ── Circuit verification ──────────────────────────────────────────
+    {
+        "name": "verify_circuit",
+        "description": "對目前畫布上的電路執行 DRC 和電氣模擬檢查。回傳目前的電路狀態，前端會用 ngspice WASM 執行實際的電氣模擬。",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -672,6 +681,16 @@ async def _list_design_skills(_args: dict) -> dict:
     return {"skills": list_skills()}
 
 
+async def _verify_circuit(_args: dict) -> dict:
+    """Return the current canvas + editor state for frontend DRC with ngspice."""
+    return {
+        "components": copy.deepcopy(_canvas_state["components"]),
+        "wires": copy.deepcopy(_canvas_state["wires"]),
+        "code": _editor_state["code"],
+        "message": "Circuit state returned. Frontend will run DRC with ngspice.",
+    }
+
+
 _HANDLERS = {
     "canvas_add_component": _canvas_add_component,
     "canvas_add_wire": _canvas_add_wire,
@@ -687,4 +706,5 @@ _HANDLERS = {
     "simulation_stop": _simulation_stop,
     "retrieve_design_skill": _retrieve_design_skill,
     "list_design_skills": _list_design_skills,
+    "verify_circuit": _verify_circuit,
 }

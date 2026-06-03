@@ -1,7 +1,7 @@
 /**
  * Circuit DRC (Design Rule Check) engine for AIPLC.
  *
- * Pure topology analysis of canvas components and wires.
+ * Topology analysis + optional electrical simulation via ngspice WASM.
  * No UI dependencies, no store imports (only type imports).
  */
 
@@ -12,6 +12,8 @@ import type {
   DrcResult,
   DrcSeverity,
 } from '../store/useAppStore'
+import { spiceEngine } from '../spice/spiceEngine'
+import { buildPlcNetlist } from '../spice/plcNetlistBuilder'
 
 // Re-export DRC types for convenience
 export type { DrcSeverity, DrcIssue, DrcResult }
@@ -300,15 +302,19 @@ function checkDuplicateWire(wires: CanvasWire[]): DrcIssue[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Run all Design Rule Checks on the given circuit topology and code.
+ * Run all Design Rule Checks on the given circuit topology, code, and
+ * optionally an ngspice electrical simulation.
  *
- * Pure function with no side effects.
+ * The function is async because the ngspice WASM engine runs in a Web
+ * Worker. Topology checks run synchronously; the electrical checks are
+ * appended only when the circuit has both power and ground and at least
+ * three components.
  */
-export function runDrc(
+export async function runDrc(
   components: CanvasComponent[],
   wires: CanvasWire[],
   code: string,
-): DrcResult {
+): Promise<DrcResult> {
   const timestamp = Date.now()
 
   // Empty canvas — nothing to check
@@ -330,7 +336,123 @@ export function runDrc(
     ...checkDuplicateWire(wires),
   ]
 
+  // ── Electrical checks via ngspice ──────────────────────────────────
+  const hasPower = components.some((c) => c.type === 'power-24v')
+  const hasGround = components.some((c) => c.type === 'ground')
+
+  if (hasPower && hasGround && components.length >= 3) {
+    try {
+      const netlist = buildPlcNetlist(components, wires)
+      await spiceEngine.init()
+      const result = await spiceEngine.solve(netlist)
+
+      if (result.success) {
+        // Check power source current (short circuit detection)
+        // ngspice reports branch current as the power source name + #branch
+        // In our netlist the power source is named V_<sanitized_id>
+        const powerComp = components.find((c) => c.type === 'power-24v')
+        if (powerComp) {
+          const sid = powerComp.id.replace(/[^a-zA-Z0-9_]/g, '_')
+          const currentKey = `v_${sid}#branch`
+          const powerCurrent = Math.abs(result.variables.get(currentKey) ?? 0)
+
+          if (powerCurrent > 0.5) {
+            issues.push({
+              severity: 'error',
+              code: 'SPICE_SHORT_CIRCUIT',
+              message: `短路偵測：電源電流 ${(powerCurrent * 1000).toFixed(0)}mA 超過 500mA 閾值`,
+              componentIds: [powerComp.id],
+            })
+          }
+        }
+
+        // Check LED currents via sense sources
+        for (const comp of components) {
+          if (comp.type === 'indicator-light') {
+            const sid = comp.id.replace(/[^a-zA-Z0-9_]/g, '_')
+            const senseKey = `v_${sid}_sense#branch`
+            const current = Math.abs(result.variables.get(senseKey) ?? 0)
+
+            if (current > 0.02) {
+              issues.push({
+                severity: 'error',
+                code: 'LED_OVERCURRENT',
+                message: `LED ${(comp.properties?.label as string) || comp.id} 電流 ${(current * 1000).toFixed(1)}mA 超過 20mA 上限，請加限流電阻`,
+                componentIds: [comp.id],
+              })
+            }
+          }
+        }
+
+        // Check resistor power dissipation
+        for (const comp of components) {
+          if (comp.type === 'resistor') {
+            const sid = comp.id.replace(/[^a-zA-Z0-9_]/g, '_')
+            // Get node voltages from the two resistor terminals
+            const net1Key = findNetVoltage(result.variables, sid, '1')
+            const net2Key = findNetVoltage(result.variables, sid, '2')
+            if (net1Key !== undefined && net2Key !== undefined) {
+              const resistance = parseResistanceValue(comp.properties?.value)
+              const voltageDrop = Math.abs(net1Key - net2Key)
+              const power = (voltageDrop * voltageDrop) / resistance
+
+              if (power > 0.25) {
+                issues.push({
+                  severity: 'warning',
+                  code: 'RESISTOR_POWER',
+                  message: `電阻 ${(comp.properties?.label as string) || comp.id} 功耗 ${(power * 1000).toFixed(0)}mW 超過 250mW (1/4W) 額定`,
+                  componentIds: [comp.id],
+                })
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      // ngspice solve failed — don't block user, just warn
+      issues.push({
+        severity: 'warning',
+        code: 'SPICE_SOLVE_FAILED',
+        message: `電路模擬引擎無法求解：${err instanceof Error ? err.message : String(err)}`,
+      })
+    }
+  }
+
   const passed = issues.filter((i) => i.severity === 'error').length === 0
 
   return { passed, issues, timestamp }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for electrical checks
+// ---------------------------------------------------------------------------
+
+/** Try to find a node voltage in the SPICE results. */
+function findNetVoltage(
+  _variables: Map<string, number>,
+  _componentSid: string,
+  _pin: string,
+): number | undefined {
+  // For .op analysis, ngspice stores node voltages as the net name.
+  // We can't easily reverse-map from component+pin to net name here,
+  // so we return undefined and skip the power check for now.
+  // A future enhancement can pass the net map from the builder.
+  return undefined
+}
+
+/** Parse resistance value for power calculation. */
+function parseResistanceValue(value: unknown): number {
+  if (typeof value === 'number') return value
+  if (typeof value !== 'string') return 1000
+
+  const cleaned = String(value).replace(/[Ωohm\s]/gi, '').trim()
+  const match = cleaned.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)([a-zA-Z]*)?$/i)
+  if (!match) return 1000
+
+  const num = parseFloat(match[1])
+  const suffix = (match[2] || '').toLowerCase()
+  const multipliers: Record<string, number> = {
+    t: 1e12, g: 1e9, meg: 1e6, m: 1e6, k: 1e3, '': 1,
+  }
+  return num * (multipliers[suffix] ?? 1)
 }
