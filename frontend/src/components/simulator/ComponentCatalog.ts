@@ -44,7 +44,7 @@ export const CATALOG: CatalogCategory[] = [
       { name: '指示燈（紅/黃/綠）', pins: 2, symbol: 'led', color: '#22c55e', favorite: true, type: 'indicator-light' },
       { name: '蜂鳴器', pins: 2, symbol: 'buz', color: '#22c55e', type: 'buzzer' },
       { name: '繼電器 SPDT', pins: 5, symbol: 'relay', color: '#f59e0b', favorite: true, type: 'relay' },
-      { name: '接觸器 3相', pins: 8, symbol: 'relay', color: '#f59e0b', type: 'contactor-3phase' },
+      { name: '接觸器 3相', pins: 8, symbol: 'relay', color: '#f59e0b', favorite: true, type: 'contactor-3phase' },
       { name: '電磁閥', pins: 2, symbol: 'sol', color: '#f59e0b', type: 'solenoid-valve' },
       { name: '7 段顯示器', pins: 10, symbol: 'seg', color: '#22c55e', type: '7-segment' },
     ],
@@ -80,7 +80,7 @@ export const CATALOG: CatalogCategory[] = [
     id: 'power', name: '電源', icon: '🔋', items: [
       { name: '24V DC 電源', pins: 2, symbol: 'power', color: '#e53e3e', favorite: true, type: 'power-24v' },
       { name: '5V DC 電源', pins: 2, symbol: 'power', color: '#e53e3e', type: 'power-5v' },
-      { name: '接地 GND', pins: 1, symbol: 'gnd', color: '#334155', type: 'ground' },
+      { name: '接地 GND', pins: 1, symbol: 'gnd', color: '#334155', favorite: true, type: 'ground' },
       { name: '變壓器', pins: 4, symbol: 'tx', color: '#e53e3e', type: 'transformer' },
     ],
   },
